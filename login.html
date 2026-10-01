@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Masuk - NOVA PROJECT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="login">
+<main class="center">
+  <img src="logo.png" alt="NOVA PROJECT" class="logo small" onerror="this.style.display='none'">
+  <section class="card">
+    <div class="tabs">
+      <button class="tab active" data-tab="login">Masuk</button>
+      <button class="tab" data-tab="register">Daftar</button>
+    </div>
+    <p id="msg" class="msg" role="alert"></p>
+
+    <form id="login-form">
+      <label>Email<input type="email" name="email" required autocomplete="email"></label>
+      <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+      <button class="btn" type="submit">Masuk</button>
+    </form>
+
+    <form id="register-form" hidden>
+      <label>Nama Lengkap<input name="full_name" required maxlength="100"></label>
+      <label>Tahun Lahir<input type="number" name="birth_year" min="1900" max="2026" placeholder="2000" required></label>
+      <label>Email<input type="email" name="email" required autocomplete="email"></label>
+      <label>Password (min. 6 karakter)<input type="password" name="password" minlength="6" required autocomplete="new-password"></label>
+      <button class="btn" type="submit">Buat akun</button>
+    </form>
+  </section>
+  <a href="index.html" class="link">Kembali</a>
+</main>
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard - NOVA PROJECT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="dashboard">
+<header class="bar">
+  <img src="logo.png" alt="" class="logo tiny" onerror="this.style.display='none'">
+  <strong class="brand">NOVA PROJECT</strong>
+  <button id="logout" class="btn ghost">Logout</button>
+</header>
+<main class="wrap">
+  <section class="card">
+    <p class="muted">Halo, <span id="name">...</span></p>
+    <p class="muted">ID unikmu</p>
+    <p id="pid" class="pid">NOVA-------</p>
+    <button id="vc" class="btn">Mulai VC / Telpon</button>
+  </section>
+  <section class="card">
+    <h2>Semua pengguna <span id="count" class="badge">0</span></h2>
+    <p id="live" class="muted">Menghubungkan...</p>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Nama</th><th>ID</th><th>Tahun Lahir</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script src="script.js"></script>
+</body>
+</html>
