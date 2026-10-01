@@ -6,6 +6,8 @@ from sqlalchemy.pool import NullPool
 url = os.getenv("DATABASE_URL", "sqlite:///nova.db")
 if url.startswith("postgres://"):
     url = url.replace("postgres://", "postgresql://", 1)
+if url.startswith("postgresql://"):
+    url = url.replace("postgresql://", "postgresql+psycopg2://", 1)  # paksa driver psycopg2
 
 if url.startswith("postgresql"):
     engine = create_engine(url, poolclass=NullPool, pool_pre_ping=True)  # aman untuk serverless
