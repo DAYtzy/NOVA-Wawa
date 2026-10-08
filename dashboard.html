@@ -2,34 +2,67 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboard - NOVA PROJECT</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<title>NOVA WAWA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="dashboard">
-<header class="bar">
-  <img src="logo.png" alt="" class="logo tiny" onerror="this.style.display='none'">
-  <strong class="brand">NOVA PROJECT</strong>
-  <button id="logout" class="btn ghost">Logout</button>
-</header>
-<main class="wrap">
-  <section class="card">
-    <p class="muted">Halo, <span id="name">...</span></p>
-    <p class="muted">ID unikmu</p>
-    <p id="pid" class="pid">NOVA-------</p>
-    <button id="vc" class="btn">Mulai VC / Telpon</button>
+<header class="top">NOVA WAWA</header>
+<main>
+  <section id="home">
+    <div class="row2"><input id="search" class="search" placeholder="Cari chat atau ID..."><button id="newgrp" class="btn">+ GRUP</button></div>
+    <div id="stories" class="stories"></div>
+    <ul id="list" class="list"></ul>
+    <p id="empty-list" class="hint">Belum ada chat. Tap + lalu masukkan ID temanmu untuk menyimpannya.</p>
   </section>
-  <section class="card">
-    <h2>Semua pengguna <span id="count" class="badge">0</span></h2>
-    <p id="live" class="muted">Menghubungkan...</p>
-    <div class="scroll">
-      <table>
-        <thead><tr><th>Nama</th><th>ID</th><th>Tahun Lahir</th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
+  <section id="story" hidden>
+    <div class="row2"><button id="stxt" class="btn">STORY TEKS</button><button id="simg" class="btn">STORY FOTO</button></div>
+    <p class="hint">Story hilang setelah 24 jam. Hanya teman yang ID-nya kamu simpan yang tampil.</p>
+    <ul id="slist" class="list"></ul>
+  </section>
+  <section id="chan" hidden>
+    <p class="hint">Saluran: hanya pembuat yang bisa posting. Tap + untuk membuat saluran.</p>
+    <ul id="clist" class="list"></ul>
+  </section>
+  <section id="calls" hidden><ul id="calllist" class="list"></ul></section>
+  <section id="profile" hidden>
+    <div class="pcard">
+      <div id="pav"></div>
+      <b id="pname"></b><small id="pstat"></small>
+      <div id="pid" class="pid"></div><small id="pyear"></small>
+      <div class="pgrid">
+        <button id="pphoto" class="btn">GANTI FOTO</button><button id="pdel" class="btn">HAPUS FOTO</button>
+        <button id="pst" class="btn">UBAH STATUS</button><button id="copy" class="btn">SALIN ID</button>
+        <button id="lockbtn" class="btn"></button><button id="logout" class="btn">LOGOUT</button>
+      </div>
     </div>
   </section>
 </main>
+<section id="room" hidden>
+  <div class="rhead">
+    <button id="back">&lt;</button>
+    <div><b id="rtitle"></b><small id="rid"></small></div>
+    <button id="savebtn">SIMPAN ID</button><button id="vbtn">VIDEO</button><button id="abtn">TELPON</button>
+  </div>
+  <div id="msgs" class="msgs"></div>
+  <form id="form" class="composer"><input id="text" placeholder="Ketik pesan..." autocomplete="off"><button class="btn">KIRIM</button></form>
+</section>
+<button id="fab" class="fab" aria-label="Tambah">+</button>
+<nav class="nav"><button data-s="home" class="on">Chat</button><button data-s="story">Story</button><button data-s="chan">Saluran</button><button data-s="calls">Panggilan</button><button data-s="profile">Profil</button></nav>
+<input id="pick" type="file" accept="image/*" hidden>
+<div id="sv" class="sv" hidden><div class="svbar"><span id="svwho"></span><button id="svclose">TUTUP</button></div><div id="svbody"></div></div>
+<div id="lock" class="lock" hidden>
+  <div class="av big">N</div><h2>APLIKASI TERKUNCI</h2>
+  <p class="hint">Letakkan jari di sensor, atau pakai pola/PIN HP</p>
+  <p id="lockerr" class="msg"></p><button id="unlock" class="btn">BUKA DENGAN SIDIK JARI</button>
+</div>
+<div id="incoming" class="incoming" hidden><span id="inwho"></span><button id="accept" class="btn">TERIMA</button><button id="reject" class="btn">TOLAK</button></div>
+<div id="call" class="call" hidden>
+  <video id="remote" autoplay playsinline></video>
+  <video id="local" autoplay playsinline muted></video>
+  <div id="cinfo"></div>
+  <div class="ctrl"><button id="mute">MUTE</button><button id="cam">KAMERA OFF</button><button id="flip">GANTI KAMERA</button><button id="end" class="danger">AKHIRI</button></div>
+</div>
 <script src="script.js"></script>
 </body>
 </html>

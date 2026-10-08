@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, func
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, func
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -33,5 +33,71 @@ class User(Base):
                 "birth_year": self.birth_year}
 
 
+class Contact(Base):  # "Save ID": teman yang disimpan pemilik
+    __tablename__ = "contacts"
+    id = Column(Integer, primary_key=True)
+    owner = Column(String(12), nullable=False, index=True)
+    contact_pid = Column(String(12), nullable=False)
+
+
+class Message(Base):  # kind: 'text' = pesan, 'sig' = signaling panggilan WebRTC
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True)
+    sender = Column(String(12), nullable=False, index=True)
+    to_id = Column(String(12), nullable=False, index=True)
+    kind = Column(String(8), nullable=False, default="text")
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def public(self):
+        return {"id": self.id, "sender": self.sender, "to": self.to_id, "kind": self.kind,
+                "body": self.body, "t": self.created_at.isoformat() + "Z"}
+
+
 def init_db():
     Base.metadata.create_all(engine)
+
+
+from sqlalchemy import Boolean
+
+
+class Profile(Base):
+    __tablename__ = "profiles"
+    player_id = Column(String(12), primary_key=True)
+    avatar = Column(Text, default="")
+    status = Column(String(80), default="")
+
+
+class Story(Base):
+    __tablename__ = "stories"
+    id = Column(Integer, primary_key=True)
+    owner = Column(String(12), nullable=False, index=True)
+    kind = Column(String(8), nullable=False)  # text | img
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class Room(Base):  # grup atau saluran; pesannya disimpan di messages dengan to_id = 'R-<id>'
+    __tablename__ = "rooms"
+    id = Column(Integer, primary_key=True)
+    kind = Column(String(8), nullable=False)  # group | channel
+    name = Column(String(60), nullable=False)
+    about = Column(String(200), default="")
+    owner = Column(String(12), nullable=False)
+
+
+class RoomMember(Base):
+    __tablename__ = "room_members"
+    id = Column(Integer, primary_key=True)
+    room_id = Column(Integer, nullable=False, index=True)
+    player_id = Column(String(12), nullable=False, index=True)
+
+
+class Call(Base):
+    __tablename__ = "calls"
+    id = Column(Integer, primary_key=True)
+    caller = Column(String(12), nullable=False, index=True)
+    callee = Column(String(12), nullable=False, index=True)
+    video = Column(Boolean, default=False)
+    status = Column(String(10), default="missed")  # missed | answered | rejected
+    created_at = Column(DateTime, server_default=func.now())
