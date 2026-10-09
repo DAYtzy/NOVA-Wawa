@@ -101,3 +101,12 @@ class Call(Base):
     video = Column(Boolean, default=False)
     status = Column(String(10), default="missed")  # missed | answered | rejected
     created_at = Column(DateTime, server_default=func.now())
+
+
+class ProfileExt(Base):  # tabel baru (bukan ALTER) supaya database Neon yang sudah ada tidak perlu migrasi
+    __tablename__ = "profile_ext"
+    player_id = Column(String(12), primary_key=True)
+    cover = Column(Text, default="")
+    public = Column(Boolean, default=True)      # Profil Publik
+    show_seen = Column(Boolean, default=True)   # Terakhir Dilihat
+    last_seen = Column(DateTime, nullable=True)

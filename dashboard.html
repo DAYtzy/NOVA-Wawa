@@ -2,66 +2,148 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#FFD93D">
 <title>NOVA WAWA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="dashboard">
-<header class="top">NOVA WAWA</header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H10l-6 4z"/></symbol>
+<symbol id="i-story" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-channel" viewBox="0 0 24 24"><path d="M3 10v4h3l7 4V6L6 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/></symbol>
+<symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A15 15 0 0 1 3 6a2 2 0 0 1 2-2z"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></symbol>
+<symbol id="i-userplus" viewBox="0 0 24 24"><circle cx="10" cy="8" r="4"/><path d="M2 21c0-4 3.6-7 8-7M19 8v6M16 11h6"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6 7-6s7 2.5 7 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c3 0 5 2 5 5"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3L3 11l7 3 3 7z"/></symbol>
+<symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-10"/></symbol>
+<symbol id="i-check2" viewBox="0 0 24 24"><path d="M1.5 12.5l4.5 4.5 8-10M9.5 16.5l1.5 1.5 9-11"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 7h3l2-3h6l2 3h3v13H4z"/><circle cx="12" cy="13" r="4"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-type" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20l1-5L16 4l4 4L9 19z"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+<symbol id="i-fp" viewBox="0 0 24 24"><path d="M12 3a8 8 0 0 0-8 8v2M12 3a8 8 0 0 1 8 8v1c0 3-.5 5-1.5 8M12 7a4 4 0 0 0-4 4c0 3 0 5-1 8M12 7a4 4 0 0 1 4 4c0 3-.5 6-2 9M12 11c0 4 0 6-1.5 9"/></symbol>
+<symbol id="i-in" viewBox="0 0 24 24"><path d="M18 6L6 18M8 7v10h10"/></symbol>
+<symbol id="i-out" viewBox="0 0 24 24"><path d="M6 18L18 6M8 6h10v10"/></symbol>
+<symbol id="i-seal" viewBox="0 0 24 24"><path d="M12 2l2.4 2 3.1-.3 1 3 2.7 1.6-1 3 1 3-2.7 1.6-1 3-3.1-.3L12 22l-2.4-2-3.1.3-1-3L2.8 15.7l1-3-1-3L6.5 8l1-3 3.1.3z" fill="#2F80FF" stroke="none"/><path d="M8 12.3l3 3 5-6" fill="none" stroke="#fff" stroke-width="2.6"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+<symbol id="i-news" viewBox="0 0 24 24"><path d="M3 5c3-1 6-1 9 1v14c-3-2-6-2-9-1zM12 6c3-2 6-2 9-1v14c-3-1-6-1-9 1"/></symbol>
+<symbol id="i-chnew" viewBox="0 0 24 24"><path d="M3 10v4h3l7 4V6L6 10z"/><path d="M18 8v6M15 11h6"/></symbol>
+</defs></svg>
+
+<header class="top" id="top">
+  <button id="hback" class="hb" aria-label="Kembali" hidden><svg class="ic"><use href="#i-back"/></svg></button>
+  <h1 id="htitle">NOVA WAWA</h1>
+  <time id="clock" class="clock"><svg class="ic"><use href="#i-clock"/></svg><span></span></time>
+  <button id="hnew" class="hb r" aria-label="Buat saluran" title="Buat saluran" hidden><svg class="ic"><use href="#i-chnew"/></svg></button>
+</header>
 <main>
   <section id="home">
-    <div class="row2"><input id="search" class="search" placeholder="Cari chat atau ID..."><button id="newgrp" class="btn">+ GRUP</button></div>
+    <div class="row2">
+      <div class="sbox"><svg class="ic"><use href="#i-search"/></svg><input id="search" placeholder="Cari chat atau ID..." aria-label="Cari chat"></div>
+      <button id="newgrp" class="rb" aria-label="Buat grup" title="Buat grup"><svg class="ic"><use href="#i-users"/></svg></button>
+    </div>
+    <div class="ann" aria-label="Pengumuman"><span class="ab"><svg class="ic"><use href="#i-channel"/></svg></span><div class="clip"><div class="track"><span id="annt"></span><span id="annt2" aria-hidden="true"></span></div></div></div>
     <div id="stories" class="stories"></div>
+    <div id="chips" class="chips" role="tablist" aria-label="Filter chat">
+      <button data-f="all" class="on"><svg class="ic"><use href="#i-chat"/></svg>Semua</button><button data-f="dm"><svg class="ic"><use href="#i-user"/></svg>Pribadi</button><button data-f="group"><svg class="ic"><use href="#i-users"/></svg>Grup</button><button data-f="channel"><svg class="ic"><use href="#i-channel"/></svg>Channel</button>
+    </div>
     <ul id="list" class="list"></ul>
     <p id="empty-list" class="hint">Belum ada chat. Tap + lalu masukkan ID temanmu untuk menyimpannya.</p>
   </section>
-  <section id="story" hidden>
-    <div class="row2"><button id="stxt" class="btn">STORY TEKS</button><button id="simg" class="btn">STORY FOTO</button></div>
-    <p class="hint">Story hilang setelah 24 jam. Hanya teman yang ID-nya kamu simpan yang tampil.</p>
-    <ul id="slist" class="list"></ul>
+  <section id="upd" hidden>
+    <h2 class="sec">Status</h2>
+    <div id="sgrid" class="sgrid"></div>
+    <div class="sech"><h2 class="sec">Saluran</h2><button id="explore-btn" class="pill">Jelajahi</button></div>
+    <ul id="mych" class="list"></ul>
+    <p id="find-h" class="hint l">Temukan saluran untuk diikuti</p>
+    <ul id="finds" class="list"></ul>
   </section>
-  <section id="chan" hidden>
-    <p class="hint">Saluran: hanya pembuat yang bisa posting. Tap + untuk membuat saluran.</p>
-    <ul id="clist" class="list"></ul>
+  <section id="explore" hidden>
+    <div class="sbox big"><svg class="ic"><use href="#i-search"/></svg><input id="xsearch" placeholder="Cari saluran..." aria-label="Cari saluran"></div>
+    <ul id="xlist" class="list"></ul>
+    <p id="empty-x" class="hint">Belum ada saluran.</p>
   </section>
-  <section id="calls" hidden><ul id="calllist" class="list"></ul></section>
+  <section id="calls" hidden><ul id="calllist" class="list"></ul><p id="empty-calls" class="hint">Belum ada panggilan. Buka chat teman lalu tap ikon telepon atau video.</p></section>
   <section id="profile" hidden>
     <div class="pcard">
-      <div id="pav"></div>
-      <b id="pname"></b><small id="pstat"></small>
-      <div id="pid" class="pid"></div><small id="pyear"></small>
-      <div class="pgrid">
-        <button id="pphoto" class="btn">GANTI FOTO</button><button id="pdel" class="btn">HAPUS FOTO</button>
-        <button id="pst" class="btn">UBAH STATUS</button><button id="copy" class="btn">SALIN ID</button>
-        <button id="lockbtn" class="btn"></button><button id="logout" class="btn">LOGOUT</button>
+      <div id="pcover" class="cover"><button id="pcov" class="cam" aria-label="Ganti sampul" title="Ganti sampul"><svg class="ic"><use href="#i-camera"/></svg></button></div>
+      <div class="pbody">
+        <div class="pav"><button id="pavb" class="avbtn" aria-label="Ganti foto profil"><span id="pav"></span></button>
+          <svg id="pvb" class="vbc" viewBox="0 0 24 24" role="img" aria-label="Akun terverifikasi" hidden><circle cx="12" cy="12" r="12" fill="#2F9BFF"/><path d="M7 12.5l3.2 3.2 6.3-6.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div class="nm"><b id="pname"></b><svg id="pver" class="ic seal" hidden><use href="#i-seal"/></svg><button id="pst" class="pen" aria-label="Edit status"><svg class="ic"><use href="#i-edit"/></svg></button></div>
+        <div id="pid" class="pid"></div>
+        <p id="pstat" class="pstat"></p><small id="pyear"></small>
+        <button id="pedit" class="outline"><svg class="ic"><use href="#i-edit"/></svg>Edit Status</button>
       </div>
     </div>
+    <div class="card2 sw"><svg class="ic lead"><use href="#i-globe"/></svg><span><b>Profil Publik</b><small>Siapa pun bisa melihat foto dan statusmu</small></span><button id="swpub" class="swb" role="switch" aria-checked="true" aria-label="Profil publik"></button></div>
+    <p class="lab">PRIVASI</p>
+    <div class="card2 sw"><svg class="ic lead"><use href="#i-clock"/></svg><span><b>Tampilkan Terakhir Dilihat</b><small>Orang lain bisa lihat kapan kamu terakhir online</small></span><button id="swseen" class="swb" role="switch" aria-checked="true" aria-label="Terakhir dilihat"></button></div>
+    <p class="lab">AKUN</p>
+    <button id="pphoto" class="card2 setr"><svg class="ic lead"><use href="#i-camera"/></svg><span><b>Ganti foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="pdel" class="card2 setr"><svg class="ic lead"><use href="#i-trash"/></svg><span><b>Hapus foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="copy" class="card2 setr"><svg class="ic lead"><use href="#i-copy"/></svg><span><b>Salin ID</b><small id="copysub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="lockbtn" class="card2 setr"><svg class="ic lead"><use href="#i-fp"/></svg><span><b>Kunci aplikasi</b><small></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="logout" class="card2 setr out"><svg class="ic lead"><use href="#i-logout"/></svg><span><b>Logout</b></span></button>
   </section>
 </main>
 <section id="room" hidden>
   <div class="rhead">
-    <button id="back">&lt;</button>
-    <div><b id="rtitle"></b><small id="rid"></small></div>
-    <button id="savebtn">SIMPAN ID</button><button id="vbtn">VIDEO</button><button id="abtn">TELPON</button>
+    <button id="back" aria-label="Kembali"><svg class="ic"><use href="#i-back"/></svg></button>
+    <div id="rav"></div>
+    <div class="rt"><b id="rtitle"></b><small id="rid"></small></div>
+    <button id="savebtn" aria-label="Simpan ID" title="Simpan ID"><svg class="ic"><use href="#i-userplus"/></svg></button>
+    <button id="vbtn" aria-label="Video call" title="Video call"><svg class="ic"><use href="#i-video"/></svg></button>
+    <button id="abtn" aria-label="Telpon" title="Telpon"><svg class="ic"><use href="#i-phone"/></svg></button>
   </div>
   <div id="msgs" class="msgs"></div>
-  <form id="form" class="composer"><input id="text" placeholder="Ketik pesan..." autocomplete="off"><button class="btn">KIRIM</button></form>
+  <div id="tray" class="tray" hidden></div>
+  <form id="form" class="composer">
+    <button type="button" id="plus" class="cb" aria-label="Emoji" title="Emoji"><svg class="ic"><use href="#i-plus"/></svg></button>
+    <input id="text" placeholder="Ketik pesan..." autocomplete="off" aria-label="Pesan">
+    <button type="button" id="mic" class="cb" aria-label="Dikte suara" title="Dikte suara"><svg class="ic"><use href="#i-mic"/></svg></button>
+    <button type="submit" id="sendb" class="cb go" aria-label="Kirim" hidden><svg class="ic"><use href="#i-send"/></svg></button>
+  </form>
 </section>
-<button id="fab" class="fab" aria-label="Tambah">+</button>
-<nav class="nav"><button data-s="home" class="on">Chat</button><button data-s="story">Story</button><button data-s="chan">Saluran</button><button data-s="calls">Panggilan</button><button data-s="profile">Profil</button></nav>
+<button id="fabt" class="fab t" aria-label="Status teks" title="Status teks" hidden><svg class="ic"><use href="#i-type"/></svg></button>
+<button id="fab" class="fab" aria-label="Tambah"><svg class="ic"><use href="#i-plus"/></svg></button>
+<nav class="nav">
+  <button data-s="home" class="on"><svg class="ic"><use href="#i-chat"/></svg><span>Chat</span></button>
+  <button data-s="upd"><svg class="ic"><use href="#i-news"/></svg><span>Pembaruan</span></button>
+  <button data-s="calls"><svg class="ic"><use href="#i-phone"/></svg><span>Panggilan</span></button>
+  <button data-s="profile"><svg class="ic"><use href="#i-user"/></svg><span>Profil</span></button>
+</nav>
 <input id="pick" type="file" accept="image/*" hidden>
-<div id="sv" class="sv" hidden><div class="svbar"><span id="svwho"></span><button id="svclose">TUTUP</button></div><div id="svbody"></div></div>
+<div id="sv" class="sv" hidden><div class="svbar"><span id="svwho"></span><button id="svclose"><svg class="ic"><use href="#i-x"/></svg>Tutup</button></div><div id="svbody"></div></div>
 <div id="lock" class="lock" hidden>
-  <div class="av big">N</div><h2>APLIKASI TERKUNCI</h2>
+  <div class="fp"><svg class="ic"><use href="#i-fp"/></svg></div><h2>Aplikasi terkunci</h2>
   <p class="hint">Letakkan jari di sensor, atau pakai pola/PIN HP</p>
-  <p id="lockerr" class="msg"></p><button id="unlock" class="btn">BUKA DENGAN SIDIK JARI</button>
+  <p id="lockerr" class="msg"></p><button id="unlock" class="btn"><svg class="ic"><use href="#i-fp"/></svg>Buka dengan sidik jari</button>
 </div>
-<div id="incoming" class="incoming" hidden><span id="inwho"></span><button id="accept" class="btn">TERIMA</button><button id="reject" class="btn">TOLAK</button></div>
+<div id="incoming" class="incoming" hidden><span id="inwho"></span><button id="accept" class="btn"><svg class="ic"><use href="#i-phone"/></svg>Terima</button><button id="reject" class="btn ghost"><svg class="ic"><use href="#i-x"/></svg>Tolak</button></div>
 <div id="call" class="call" hidden>
   <video id="remote" autoplay playsinline></video>
   <video id="local" autoplay playsinline muted></video>
   <div id="cinfo"></div>
-  <div class="ctrl"><button id="mute">MUTE</button><button id="cam">KAMERA OFF</button><button id="flip">GANTI KAMERA</button><button id="end" class="danger">AKHIRI</button></div>
+  <div class="ctrl">
+    <button id="mute" aria-label="Mute" title="Mute"><svg class="ic"><use href="#i-mic"/></svg></button>
+    <button id="cam" aria-label="Matikan kamera" title="Matikan kamera"><svg class="ic"><use href="#i-video"/></svg></button>
+    <button id="flip" aria-label="Ganti kamera" title="Ganti kamera"><svg class="ic"><use href="#i-camera"/></svg></button>
+    <button id="end" class="danger" aria-label="Akhiri" title="Akhiri"><svg class="ic"><use href="#i-phone"/></svg></button>
+  </div>
 </div>
 <script src="script.js"></script>
 </body>

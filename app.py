@@ -8,21 +8,46 @@ from flask import Flask, request, jsonify, send_from_directory
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
-from database import Session, User, Contact, Message, Profile, Story, Room, RoomMember, Call, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Story, Room, RoomMember, Call, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 ser = URLSafeTimedSerializer(os.getenv("SECRET_KEY", "dev-secret-change-me"))
 init_db()
-ALPHABET = string.ascii_uppercase + string.digits
+
+ONLINE_SEC = 25
+VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") if x.strip()}  # ID yang dapat centang biru
+ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
 PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "style.css", "script.js", "logo.png"}
 
 
 def new_pid(db):
-    while True:  # loop sampai ID NOVA-XXXXXX belum dipakai
-        pid = "NOVA-" + "".join(secrets.choice(ALPHABET) for _ in range(6))
+    while True:  # ID angka acak 8 digit (tanpa awalan 0), diulang sampai belum dipakai
+        pid = str(secrets.randbelow(90_000_000) + 10_000_000)
         if not db.query(User.id).filter_by(player_id=pid).first():
             return pid
+
+
+ID_COLS = [(User, "player_id"), (Contact, "owner"), (Contact, "contact_pid"), (Message, "sender"), (Message, "to_id"),
+           (Profile, "player_id"), (ProfileExt, "player_id"), (Story, "owner"), (Room, "owner"),
+           (RoomMember, "player_id"), (Call, "caller"), (Call, "callee")]
+
+
+def migrate_ids():
+    """Sekali jalan: ganti ID lama NOVA-XXXXXX jadi angka, di semua tabel (kontak, pesan, grup, dll)."""
+    try:
+        with Session() as db:
+            for o in [u.player_id for u in db.query(User).filter(User.player_id.like("NOVA-%"))]:
+                n = new_pid(db)
+                for M, col in ID_COLS:
+                    c = getattr(M, col)
+                    db.query(M).filter(c == o).update({c: n}, synchronize_session=False)
+            db.commit()
+    except Exception as e:  # jangan sampai aplikasi gagal start karena migrasi
+        print("migrate_ids gagal:", e)
+
+
+migrate_ids()
 
 
 def authed(f):
@@ -39,13 +64,41 @@ def authed(f):
     return w
 
 
+EMPTY = {"avatar": "", "status": "", "cover": "", "public": True, "show_seen": True, "last_seen": None}
+
+
 def prof(db, ids):
-    return {p.player_id: {"avatar": p.avatar or "", "status": p.status or ""}
-            for p in db.query(Profile).filter(Profile.player_id.in_(ids))}
+    out = {i: dict(EMPTY) for i in ids}
+    for p in db.query(Profile).filter(Profile.player_id.in_(ids)):
+        out[p.player_id].update(avatar=p.avatar or "", status=p.status or "")
+    for e in db.query(ProfileExt).filter(ProfileExt.player_id.in_(ids)):
+        out[e.player_id].update(cover=e.cover or "", public=e.public is not False,
+                                show_seen=e.show_seen is not False, last_seen=e.last_seen)
+    return out
 
 
-def pub(u, pr):
-    return {**u.public(), **pr.get(u.player_id, {"avatar": "", "status": ""})}
+def pub(u, pr, mine=False):
+    d = pr.get(u.player_id, EMPTY)
+    o = {**u.public(), "verified": u.id == 1 or u.player_id in VERIFIED}
+    if mine:
+        o.update(avatar=d["avatar"], status=d["status"], cover=d["cover"], public=d["public"],
+                 show_seen=d["show_seen"], announce=ANNOUNCE)
+    elif d["public"]:  # profil privat: foto & status disembunyikan dari orang lain
+        o.update(avatar=d["avatar"], status=d["status"])
+    else:
+        o.update(avatar="", status="")
+    return o
+
+
+def touch(db, pid):
+    now = datetime.utcnow()
+    e = db.get(ProfileExt, pid)
+    if not e:
+        e = ProfileExt(player_id=pid, public=True, show_seen=True)
+        db.add(e)
+    if not e.last_seen or (now - e.last_seen).total_seconds() > 15:
+        e.last_seen = now
+        db.commit()
 
 
 def log_call(db, me_id, to, body):
@@ -100,7 +153,7 @@ def login():
 @app.get("/api/me")
 @authed
 def me(db, u):
-    return jsonify(user=pub(u, prof(db, [u.player_id])))
+    return jsonify(user=pub(u, prof(db, [u.player_id]), True))
 
 
 @app.get("/api/contacts")
@@ -170,6 +223,7 @@ def history(db, u):
 @authed
 def poll(db, u):
     """Short polling: pesan + sinyal panggilan baru. Tanpa ?after= hanya mengembalikan id terakhir."""
+    touch(db, u.player_id)
     after = request.args.get("after", type=int)
     if after is None:
         return jsonify(events=[], last=db.query(func.max(Message.id)).scalar() or 0)
@@ -187,14 +241,55 @@ def poll(db, u):
 def profile_post(db, u):
     d = request.get_json(silent=True) or {}
     p = db.get(Profile, u.player_id) or Profile(player_id=u.player_id)
+    e = db.get(ProfileExt, u.player_id) or ProfileExt(player_id=u.player_id, public=True, show_seen=True)
     db.add(p)
+    db.add(e)
     if "avatar" in d:
         a = d["avatar"] or ""
         p.avatar = a if a.startswith("data:image/") and len(a) < 150000 else ""
     if "status" in d:
         p.status = (d["status"] or "")[:80]
+    if "cover" in d:
+        c = d["cover"] or ""
+        e.cover = c if c.startswith("data:image/") and len(c) < 200000 else ""
+    if "public" in d:
+        e.public = bool(d["public"])
+    if "show_seen" in d:
+        e.show_seen = bool(d["show_seen"])
     db.commit()
-    return jsonify(user=pub(u, prof(db, [u.player_id])))
+    return jsonify(user=pub(u, prof(db, [u.player_id]), True))
+
+
+@app.get("/api/presence")
+@authed
+def presence(db, u):
+    """Status online / terakhir dilihat teman yang tersimpan (hanya yang mengizinkan)."""
+    ids = [c.contact_pid for c in db.query(Contact).filter_by(owner=u.player_id)]
+    now, out = datetime.utcnow(), {}
+    for pid, d in prof(db, ids).items():
+        if d["show_seen"] and d["last_seen"]:
+            out[pid] = {"online": (now - d["last_seen"]).total_seconds() < ONLINE_SEC,
+                        "seen": d["last_seen"].isoformat() + "Z"}
+    return jsonify(presence=out)
+
+
+@app.get("/api/chats")
+@authed
+def chats(db, u):
+    """Pesan terakhir tiap percakapan, untuk daftar chat."""
+    me_id = u.player_id
+    tags = ["R-%d" % m.room_id for m in db.query(RoomMember).filter_by(player_id=me_id)]
+    rows = (db.query(Message).filter(Message.kind == "text", or_(
+            Message.sender == me_id, Message.to_id == me_id, Message.to_id.in_(tags)))
+            .order_by(Message.id.desc()).limit(400).all())
+    seen, out = set(), []
+    for m in rows:
+        key = m.to_id if (m.to_id.startswith("R-") or m.sender == me_id) else m.sender
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"key": key, "body": m.body[:120], "t": m.created_at.isoformat() + "Z", "mine": m.sender == me_id})
+    return jsonify(chats=out)
 
 
 @app.get("/api/stories")
