@@ -260,7 +260,7 @@ async function initDashboard() {
   $("#logout").onclick = logout;
   $("#copy").onclick = () => navigator.clipboard.writeText(me.player_id).then(() => ($("#copysub").textContent = "Tersalin"));
 
-  const tick = (m) => { const seen = !isRoom(m.to) && st.seen[m.to] && Date.parse(st.seen[m.to].seen) >= Date.parse(m.t); return ic(seen ? "check2" : "check", "tk" + (seen ? " seen" : "")); };
+  const tick = (m) => { if (m.pending) return ic("clock", "tk"); const seen = !isRoom(m.to) && st.seen[m.to] && Date.parse(st.seen[m.to].seen) >= Date.parse(m.t); return ic(seen ? "check2" : "check", "tk" + (seen ? " seen" : "")); };
   function refreshTicks() {
     document.querySelectorAll("#msgs .bub.out").forEach((d) => { const t = d.querySelector(".tk"); if (t) t.replaceWith(tick({ to: d.dataset.to, t: d.dataset.t })); });
   }
@@ -280,6 +280,7 @@ async function initDashboard() {
     if (mine) { d.dataset.to = m.to; d.dataset.t = m.t; mt.append(tick(m)); }
     d.append(box, mt);
     $("#msgs").append(d); $("#msgs").scrollTop = 1e9;
+    return d;
   }
   async function open(p) {
     st.cur = p; st.unread[p] = 0;
@@ -300,7 +301,12 @@ async function initDashboard() {
     const v = $("#text").value.trim();
     if (!v || !st.cur) return;
     $("#text").value = ""; upd();
-    try { addMsg(await send(st.cur, "text", v)); } catch (err) { toast(err.message); }
+    const to = st.cur, el = addMsg({ sender: me.player_id, to, kind: "text", body: v, t: new Date().toISOString(), pending: true });
+    try {
+      const m = await send(to, "text", v);
+      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t;
+      el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
+    } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Pesan gagal terkirim: " + err.message); }
   };
   const upd = () => { const has = $("#text").value.trim().length > 0; $("#sendb").hidden = !has; $("#mic").hidden = has; };
   $("#text").oninput = upd;
@@ -394,65 +400,124 @@ async function initDashboard() {
   };
 
   /* ----- WebRTC native: STUN Google, signaling lewat /api/send + /api/poll ----- */
-  const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
-  let pc, stream, peer, pend = [], offer, video = true, facing = "user";
+  let ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+  api("/ice").then((r) => r.iceServers && (ICE = { iceServers: r.iceServers })).catch(() => {});
+  let pc, stream, peer, pend = [], offer, video = true, facing = "user", sdpSent = false, t0 = 0, tmr, conT, ringT, ringCtx;
   const sig = (type, data) => send(peer, "sig", JSON.stringify({ type, data })).catch(() => {});
+  const fmtT = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+  function showPeer(p, label) {
+    $("#cav").replaceChildren(av(nameOf(p), imgOf(p))); $("#cname").textContent = $("#ctopn").textContent = nameOf(p);
+    $("#cstat").textContent = label; $("#ctime").textContent = "";
+  }
+  function started() {  // dipanggil saat koneksi benar-benar tersambung
+    if (t0) return;
+    t0 = Date.now(); clearTimeout(conT); stopRing(); $("#call").classList.add("on");
+    const upd = () => { const t = fmtT(Math.floor((Date.now() - t0) / 1000)); $("#cstat").textContent = t; $("#ctime").textContent = t; };
+    upd(); tmr = setInterval(upd, 1000);
+  }
+  function startRing() {
+    try { navigator.vibrate && navigator.vibrate([500, 300, 500]); } catch {}
+    try {
+      ringCtx = ringCtx || new (window.AudioContext || window.webkitAudioContext)(); ringCtx.resume();
+      const beep = () => { const o = ringCtx.createOscillator(), g = ringCtx.createGain(); o.frequency.value = 440; g.gain.value = 0.08; o.connect(g); g.connect(ringCtx.destination); o.start(); o.stop(ringCtx.currentTime + 0.4); };
+      const cycle = () => { beep(); setTimeout(beep, 600); try { navigator.vibrate && navigator.vibrate([500, 300, 500]); } catch {} };
+      cycle(); ringT = setInterval(cycle, 3000);
+    } catch {}
+  }
+  function stopRing() { clearInterval(ringT); ringT = null; try { navigator.vibrate && navigator.vibrate(0); } catch {} }
+  const gathered = (p) => new Promise((res) => {  // tunggu kandidat jaringan terkumpul (maks 3 dtk) supaya sambungan lebih cepat dan andal
+    if (!p || p.iceGatheringState === "complete") return res();
+    const t = setTimeout(done, 3000);
+    function chk() { if (p.iceGatheringState === "complete") done(); }
+    function done() { clearTimeout(t); p.removeEventListener("icegatheringstatechange", chk); res(); }
+    p.addEventListener("icegatheringstatechange", chk);
+  });
   async function media() {
     $("#mute").classList.remove("off"); $("#cam").classList.remove("off");
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: video && { facingMode: facing } });
-    $("#local").srcObject = stream;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: video && { facingMode: facing } });
+    $("#local").srcObject = stream; $("#local").play().catch(() => {});
     $("#local").hidden = $("#cam").hidden = $("#flip").hidden = !video;
+    $("#call").classList.toggle("vid", video); $("#call").classList.remove("live", "on");
   }
+  const R = $("#remote"), A = $("#raudio");
+  const live = () => { if (video && R.videoWidth) $("#call").classList.add("live"); };
+  R.addEventListener("playing", live); R.addEventListener("resize", live);
+  $("#unmute").onclick = () => { A.play().catch(() => {}); R.play().catch(() => {}); $("#unmute").hidden = true; };
   function mkpc() {
-    pc = new RTCPeerConnection(ICE);
-    stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-    pc.ontrack = (e) => ($("#remote").srcObject = e.streams[0]);
-    pc.onicecandidate = (e) => e.candidate && sig("ice", e.candidate);
-    pc.onconnectionstatechange = () => { if (pc && pc.connectionState === "failed") hang(true, "Koneksi gagal (jaringan memblokir P2P)"); };
+    sdpSent = false;
+    const p = (pc = new RTCPeerConnection(ICE));
+    stream.getTracks().forEach((t) => p.addTrack(t, stream));
+    p.ontrack = (e) => {
+      const s = e.streams[0] || new MediaStream([e.track]);
+      if (A.srcObject !== s) { A.srcObject = s; R.srcObject = s; R.muted = true; }  // suara lewat <audio>, gambar lewat <video>
+      A.play().catch(() => { $("#unmute").hidden = false; });
+      R.play().catch(() => {});
+    };
+    p.onicecandidate = (e) => e.candidate && sdpSent && sig("ice", e.candidate);
+    p.onconnectionstatechange = () => {
+      if (pc !== p) return;
+      if (p.connectionState === "connected") started();
+      else if (p.connectionState === "disconnected") $("#cstat").textContent = "Koneksi tidak stabil...";
+      else if (p.connectionState === "failed") hang(true, "Panggilan gagal tersambung. Jaringan kalian mungkin memblokir panggilan langsung (butuh server TURN).");
+    };
+    conT = setTimeout(() => { if (pc === p && !t0) hang(true, "Tidak bisa tersambung. Coba lagi sebentar lagi."); }, 35000);
   }
   function hang(notify, msg) {
     if (notify && peer) sig("end");
-    if (pc) pc.close();
+    stopRing(); clearInterval(tmr); clearTimeout(conT); tmr = conT = null; t0 = 0;
+    if (pc) { pc.onconnectionstatechange = null; pc.close(); }
     if (stream) stream.getTracks().forEach((t) => t.stop());
     pc = stream = peer = offer = null; pend = [];
-    $("#call").hidden = true; $("#incoming").hidden = true;
+    A.srcObject = R.srcObject = $("#local").srcObject = null; $("#unmute").hidden = true;
+    $("#call").hidden = true; $("#incoming").hidden = true; $("#call").classList.remove("live", "on");
     if (msg) toast(msg);
   }
   async function call(v) {
-    if (peer || !st.cur) return;
-    peer = st.cur; video = v; $("#call").hidden = false; $("#cinfo").textContent = "Memanggil " + nameOf(peer) + "...";
+    if (peer || !st.cur || isRoom(st.cur)) return;
+    peer = st.cur; video = v; t0 = 0; $("#call").hidden = false; showPeer(peer, "Memanggil...");
     try { await media(); } catch { return hang(false, "Izin kamera/mikrofon ditolak"); }
+    if (!peer) return hang(false);
     mkpc();
-    const o = await pc.createOffer(); await pc.setLocalDescription(o);
-    sig("offer", { sdp: { type: o.type, sdp: o.sdp }, video: v });
+    const p = pc;
+    try {
+      await p.setLocalDescription(await p.createOffer()); await gathered(p);
+      if (pc !== p) return;
+      sdpSent = true; sig("offer", { sdp: { type: p.localDescription.type, sdp: p.localDescription.sdp }, video: v });
+    } catch { hang(false, "Tidak bisa memulai panggilan"); }
   }
   $("#vbtn").onclick = () => call(true);
   $("#abtn").onclick = () => call(false);
   async function signal(from, { type, data }) {
-    if (type === "ice" && (!peer || from === peer)) { (pc && pc.remoteDescription) ? pc.addIceCandidate(data) : pend.push(data); return; }
+    if (type === "ice") { if (peer && from === peer) { (pc && pc.remoteDescription) ? pc.addIceCandidate(data).catch(() => {}) : pend.push(data); } return; }
     if (type === "offer") {
       if (peer) return send(from, "sig", JSON.stringify({ type: "reject" }));
-      peer = from; offer = data; video = !!data.video;
-      $("#inwho").textContent = nameOf(from) + (video ? " video call..." : " menelpon...");
-      $("#incoming").hidden = false; return;
+      peer = from; offer = data; video = !!data.video; t0 = 0; pend = [];
+      $("#iav").replaceChildren(av(nameOf(from), imgOf(from))); $("#inwho").textContent = nameOf(from);
+      $("#inkind").textContent = video ? "Panggilan video masuk" : "Panggilan suara masuk";
+      $("#incoming").hidden = false; startRing(); return;
     }
     if (from !== peer) return;
     if (type === "answer") {
       await pc.setRemoteDescription(data);
-      pend.forEach((c) => pc.addIceCandidate(c)); pend = [];
-      $("#cinfo").textContent = "Terhubung";
-    } else hang(false, type === "reject" ? "Panggilan ditolak" : null);
+      pend.forEach((c) => pc.addIceCandidate(c).catch(() => {})); pend = [];
+      if (!t0) $("#cstat").textContent = "Menyambung...";
+    } else hang(false, type === "reject" ? "Panggilan ditolak" : type === "end" ? (t0 ? "Panggilan berakhir" : "Panggilan dibatalkan") : null);
   }
   $("#accept").onclick = async () => {
-    $("#incoming").hidden = true; $("#call").hidden = false; $("#cinfo").textContent = "Menyambung...";
+    stopRing(); $("#incoming").hidden = true; $("#call").hidden = false; showPeer(peer, "Menyambung...");
     try { await media(); } catch { sig("reject"); return hang(false, "Izin kamera/mikrofon ditolak"); }
+    if (!peer) return hang(false);
     mkpc();
-    await pc.setRemoteDescription(offer.sdp);
-    pend.forEach((c) => pc.addIceCandidate(c)); pend = [];
-    const a = await pc.createAnswer(); await pc.setLocalDescription(a);
-    sig("answer", { type: a.type, sdp: a.sdp }); $("#cinfo").textContent = "Terhubung";
+    const p = pc;
+    try {
+      await p.setRemoteDescription(offer.sdp);
+      pend.forEach((c) => pc.addIceCandidate(c).catch(() => {})); pend = [];
+      await p.setLocalDescription(await p.createAnswer()); await gathered(p);
+      if (pc !== p) return;
+      sdpSent = true; sig("answer", { type: p.localDescription.type, sdp: p.localDescription.sdp });
+    } catch { hang(true, "Tidak bisa menyambung panggilan"); }
   };
-  $("#reject").onclick = () => { sig("reject"); hang(false); };
+  $("#reject").onclick = () => { stopRing(); sig("reject"); hang(false); };
   $("#end").onclick = () => hang(true);
   const toggle = (sel, kind) => ($(sel).onclick = (e) => {
     const t = stream && stream.getTracks().find((x) => x.kind === kind);
@@ -505,10 +570,13 @@ async function initDashboard() {
   /* ----- polling pesan + sinyal ----- */
   await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence()]);
   show("home");
-  let last = (await api("/poll")).last, n = 0;
+  let last = (await api("/poll")).last, t1 = Date.now(), t2 = Date.now();
   (async function tick() {
+    let wait = 50;
+    const started = Date.now();
     try {
-      const r = await api("/poll?after=" + last); last = r.last;
+      const r = await api("/poll?after=" + last + "&wait=1", { signal: AbortSignal.timeout ? AbortSignal.timeout(12000) : undefined });
+      last = r.last;
       r.events.forEach((m) => {
         if (m.kind === "sig") return signal(m.sender, JSON.parse(m.body));
         const key = isRoom(m.to) ? m.to : m.sender;
@@ -517,10 +585,12 @@ async function initDashboard() {
         else { st.last[key] = m.body; st.lastT[key] = m.t; st.unread[key] = (st.unread[key] || 0) + 1; }
         render();
       });
-      if (++n % 40 === 0) { loadStories(); loadContacts(); loadChats(); }
-      if (n % 10 === 0) loadPresence();
-    } catch (e) {}
-    setTimeout(tick, peer ? 700 : 1500);
+      if (!r.events.length && Date.now() - started < 1500) wait = 1200;  // server lama tanpa long-poll: jangan membanjiri
+      const now = Date.now();
+      if (now - t1 > 60000) { t1 = now; loadStories(); loadContacts(); loadChats(); }
+      if (now - t2 > 15000) { t2 = now; loadPresence(); }
+    } catch (e) { wait = 2500; }
+    setTimeout(tick, wait);
   })();
 }
 

@@ -180,20 +180,13 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem 8rem}
 .fp{display:grid;place-items:center;width:128px;height:128px;background:var(--y);border:3px solid var(--ink);box-shadow:6px 6px 0 var(--ink)}
 .fp .ic{width:78px;height:78px;stroke-width:1.8}
 /* panggilan */
-.call{position:fixed;inset:0;background:#111;z-index:9}
-#remote{width:100%;height:100%;object-fit:cover}
-#local{position:absolute;top:12px;right:12px;width:110px;background:#000;border:3px solid var(--y);touch-action:none;z-index:2}
-#cinfo{position:absolute;top:14px;left:14px;background:var(--y);border:3px solid var(--ink);padding:.3rem .6rem;font-weight:700}
 .ctrl{position:absolute;bottom:22px;left:0;right:0;display:flex;justify-content:center;gap:.6rem;flex-wrap:wrap}
-.ctrl button{display:grid;place-items:center;width:58px;height:58px;padding:0;background:#fff;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);cursor:pointer;position:relative}
+.ctrl button{display:grid;place-items:center;width:58px;height:58px;padding:0;background:#fff;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);cursor:pointer;position:relative;color:var(--ink)}
 .ctrl button .ic{width:1.6em;height:1.6em}
 .ctrl button.off{background:#444;color:#fff}
 .ctrl button.off::after{content:"";position:absolute;width:140%;height:3px;background:var(--red);transform:rotate(-45deg);left:-20%;top:calc(50% - 1px)}
 .ctrl .danger{background:var(--red);color:#fff}
 .ctrl .danger .ic{transform:rotate(135deg)}
-.incoming{position:fixed;left:0;right:0;top:0;z-index:10;display:flex;gap:.6rem;align-items:center;padding:1rem;background:var(--y);border-bottom:3px solid var(--ink)}
-.incoming span{flex:1;font-weight:700}
-.incoming .btn{padding:.5rem .9rem}
 /* splash */
 .splash{position:fixed;inset:0;z-index:50;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;transition:opacity .35s}
 .splash img{width:min(240px,62vw);border:3px solid var(--y);box-shadow:6px 6px 0 var(--y)}
@@ -249,3 +242,34 @@ textarea:focus-visible{outline:3px solid var(--red);outline-offset:2px}
 @keyframes popin{from{opacity:0;transform:translateY(30px) scale(.92)}}
 @keyframes toastin{from{opacity:0;transform:translateX(-50%) translateY(-20px)}}
 @media (prefers-reduced-motion:reduce){.dlg-back,.dlg,.toast{animation:none}}
+
+/* panggilan ala WhatsApp */
+.call,.incoming{position:fixed;inset:0;background:radial-gradient(circle at 50% 30%,#3a3000,#111 62%);color:#fff}
+.call{z-index:9}
+.incoming{z-index:10;display:grid;align-content:center;justify-items:center;gap:.5rem;text-align:center;padding:2rem}
+.incoming h2,.cpeer h2{margin:.7rem 0 0;font-size:1.9rem}
+.incoming p{margin:0;color:var(--y);font-weight:700;letter-spacing:.06em}
+.inbtns{display:flex;gap:4rem;margin-top:3.5rem}
+.rbtn{display:grid;justify-items:center;gap:.5rem;background:none;border:0;color:#fff;font:700 .85rem "JetBrains Mono",monospace;cursor:pointer}
+.rbtn .bt{display:grid;place-items:center;width:72px;height:72px;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink)}
+.rbtn .bt .ic{width:2rem;height:2rem}
+.rbtn.yes .bt{background:var(--grn);color:var(--ink)}
+.rbtn.no .bt{background:var(--red);color:#fff}
+.rbtn.no .bt .ic{transform:rotate(135deg)}
+#remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;display:none}
+.call.vid #remote{display:block}
+.cpeer{position:absolute;inset:0 0 130px;display:grid;align-content:center;justify-items:center;gap:.4rem;text-align:center;z-index:1}
+.call.live .cpeer{display:none}
+.cav .av{width:150px;height:150px;font-size:3.4rem;border:4px solid var(--ink);box-shadow:inset 0 0 0 5px var(--y),0 0 0 0 rgba(255,217,61,.55)}
+.call:not(.on) .cav .av,.incoming .cav .av{animation:ringp 1.6s ease-out infinite}
+@keyframes ringp{to{box-shadow:inset 0 0 0 5px var(--y),0 0 0 30px rgba(255,217,61,0)}}
+#cstat{margin:0;color:var(--y);font-weight:700;font-size:1.1rem;letter-spacing:.08em}
+.ctop{position:absolute;top:0;left:0;right:0;display:none;align-items:center;gap:.8rem;padding:.9rem 1rem 2rem;background:linear-gradient(rgba(0,0,0,.65),transparent);z-index:2}
+.call.live .ctop{display:flex}
+.ctop b{font-size:1.1rem}
+.ctop span{color:var(--y);font-weight:700}
+#local{position:absolute;top:70px;right:12px;width:110px;background:#000;border:3px solid var(--y);touch-action:none;z-index:2}
+.unm{position:absolute;left:50%;transform:translateX(-50%);bottom:130px;z-index:3;white-space:nowrap}
+.ctrl{z-index:3}
+.bub .tk.fail{color:var(--red)}
+@media (prefers-reduced-motion:reduce){.call:not(.on) .cav .av,.incoming .cav .av{animation:none}}

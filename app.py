@@ -222,18 +222,55 @@ def history(db, u):
 @app.get("/api/poll")
 @authed
 def poll(db, u):
-    """Short polling: pesan + sinyal panggilan baru. Tanpa ?after= hanya mengembalikan id terakhir."""
+    """Long polling: kalau belum ada pesan baru, server menunggu (maks ~6 dtk) lalu menjawab begitu ada yang masuk.
+    Tanpa ?after= hanya mengembalikan id terakhir."""
     touch(db, u.player_id)
     after = request.args.get("after", type=int)
     if after is None:
         return jsonify(events=[], last=db.query(func.max(Message.id)).scalar() or 0)
+    deadline = time.time() + (6 if request.args.get("wait", type=int) else 0)
     cut = datetime.utcnow() - timedelta(seconds=90)
-    tags = ["R-%d" % m.room_id for m in db.query(RoomMember).filter_by(player_id=u.player_id)]
-    rows = (db.query(Message).filter(Message.id > after, or_(
-            (Message.to_id == u.player_id) & or_(Message.kind == "text", Message.created_at > cut),
-            Message.to_id.in_(tags) & (Message.sender != u.player_id)))
-            .order_by(Message.id).limit(100).all())
+    while True:
+        tags = ["R-%d" % m.room_id for m in db.query(RoomMember).filter_by(player_id=u.player_id)]
+        rows = (db.query(Message).filter(Message.id > after, or_(
+                (Message.to_id == u.player_id) & or_(Message.kind == "text", Message.created_at > cut),
+                Message.to_id.in_(tags) & (Message.sender != u.player_id)))
+                .order_by(Message.id).limit(100).all())
+        if rows or time.time() >= deadline:
+            break
+        db.rollback()  # lepas koneksi database selama menunggu
+        time.sleep(0.4)
     return jsonify(events=[m.public() for m in rows], last=rows[-1].id if rows else after)
+
+
+_ice = {"t": 0.0, "v": None}
+
+
+@app.get("/api/ice")
+@authed
+def ice(db, u):
+    """Daftar server STUN/TURN untuk panggilan. TURN (relay) diisi lewat env METERED_DOMAIN + METERED_API_KEY,
+    atau TURN_URL + TURN_USER + TURN_PASS. Tanpa TURN, panggilan antar jaringan seluler sering gagal tersambung."""
+    now = time.time()
+    if _ice["v"] and now - _ice["t"] < 600:
+        return jsonify(iceServers=_ice["v"], turn=any("turn" in str(x.get("urls")) for x in _ice["v"]))
+    servers, dom, key = [{"urls": "stun:stun.l.google.com:19302"}], os.getenv("METERED_DOMAIN", "").strip(), os.getenv("METERED_API_KEY", "").strip()
+    dom = dom.replace("https://", "").replace("http://", "").strip("/")
+    if dom and key:
+        try:
+            import urllib.parse, urllib.request
+            url = "https://%s/api/v1/turn/credentials?apiKey=%s" % (dom, urllib.parse.quote(key))
+            with urllib.request.urlopen(url, timeout=4) as r:
+                got = json.loads(r.read().decode())
+            if isinstance(got, list) and got:
+                servers = got
+        except Exception as e:
+            print("ambil TURN gagal:", e)
+    elif os.getenv("TURN_URL"):
+        servers.append({"urls": [x.strip() for x in os.getenv("TURN_URL").split(",")],
+                        "username": os.getenv("TURN_USER", ""), "credential": os.getenv("TURN_PASS", "")})
+    _ice.update(t=now, v=servers)
+    return jsonify(iceServers=servers, turn=any("turn" in str(x.get("urls")) for x in servers))
 
 
 @app.post("/api/profile")

@@ -133,11 +133,22 @@
   <p class="hint">Letakkan jari di sensor, atau pakai pola/PIN HP</p>
   <p id="lockerr" class="msg"></p><button id="unlock" class="btn"><svg class="ic"><use href="#i-fp"/></svg>Buka dengan sidik jari</button>
 </div>
-<div id="incoming" class="incoming" hidden><span id="inwho"></span><button id="accept" class="btn"><svg class="ic"><use href="#i-phone"/></svg>Terima</button><button id="reject" class="btn ghost"><svg class="ic"><use href="#i-x"/></svg>Tolak</button></div>
+<div id="incoming" class="incoming" hidden>
+  <div id="iav" class="cav"></div>
+  <h2 id="inwho"></h2>
+  <p id="inkind"></p>
+  <div class="inbtns">
+    <button id="reject" class="rbtn no" aria-label="Tolak"><span class="bt"><svg class="ic"><use href="#i-phone"/></svg></span><span>Tolak</span></button>
+    <button id="accept" class="rbtn yes" aria-label="Terima"><span class="bt"><svg class="ic"><use href="#i-phone"/></svg></span><span>Terima</span></button>
+  </div>
+</div>
 <div id="call" class="call" hidden>
-  <video id="remote" autoplay playsinline></video>
+  <video id="remote" autoplay playsinline muted></video>
+  <audio id="raudio" autoplay></audio>
+  <div class="cpeer"><div id="cav" class="cav"></div><h2 id="cname"></h2><p id="cstat"></p></div>
+  <div class="ctop"><b id="ctopn"></b><span id="ctime"></span></div>
   <video id="local" autoplay playsinline muted></video>
-  <div id="cinfo"></div>
+  <button id="unmute" class="pill unm" hidden>Ketuk untuk menyalakan suara</button>
   <div class="ctrl">
     <button id="mute" aria-label="Mute" title="Mute"><svg class="ic"><use href="#i-mic"/></svg></button>
     <button id="cam" aria-label="Matikan kamera" title="Matikan kamera"><svg class="ic"><use href="#i-video"/></svg></button>
