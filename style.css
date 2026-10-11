@@ -226,3 +226,26 @@ body[data-page="landing"]{background:#000;overflow:hidden;touch-action:manipulat
 .ripple{position:fixed;z-index:3;width:20px;height:20px;margin:-10px 0 0 -10px;border:3px solid var(--y);border-radius:50%;pointer-events:none;animation:rip .7s ease-out forwards}
 @keyframes rip{to{transform:scale(9);opacity:0}}
 @media (prefers-reduced-motion:reduce){.taphint,.ripple{animation:none}.ripple{display:none}.lcard,.r,.bgv,.shade{transition:none;transform:none}}
+
+/* dialog & toast bergaya NOVA (pengganti popup bawaan browser) */
+textarea{border:3px solid var(--ink);background:#fff;padding:.7rem;font:inherit;color:var(--ink);border-radius:0;resize:vertical;width:100%}
+textarea:focus-visible{outline:3px solid var(--red);outline-offset:2px}
+.dlg-back{position:fixed;inset:0;z-index:30;background:rgba(17,17,17,.62);display:grid;place-items:center;padding:1rem;animation:fadein .2s}
+.dlg{width:min(420px,100%);max-height:92dvh;overflow:auto;background:var(--bg);border:3px solid var(--ink);box-shadow:8px 8px 0 var(--ink);padding:1.2rem;animation:popin .35s cubic-bezier(.34,1.56,.64,1)}
+.dlg h2{margin:0;font-size:1.4rem;letter-spacing:.04em}
+.dlg-d{margin:0;color:var(--mut);font-size:.85rem}
+.dlg-l{font-weight:700;font-size:.85rem}
+.dlg-c{align-self:flex-end;color:var(--mut);font-size:.72rem;font-weight:500}
+.dlg-e{margin:0;min-height:1.2em;color:var(--red);font-weight:700;font-size:.85rem}
+.dlg-b{display:flex;gap:.7rem;justify-content:flex-end}
+.dlg-b .btn{padding:.6rem 1.1rem}
+.dlg-pick{display:grid;gap:.4rem;max-height:210px;overflow:auto;border:3px solid var(--ink);background:#fff;padding:.4rem}
+.dlg-pick .pk{flex-direction:row;align-items:center;gap:.6rem;font-weight:500;padding:.2rem;cursor:pointer}
+.dlg-pick .pk input{width:22px;height:22px;flex:none;accent-color:var(--red);padding:0}
+.dlg-pick .av{width:34px;height:34px;font-size:.95rem;border-width:2px}
+.dlg-pick .pk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;left:50%;top:4.4rem;transform:translateX(-50%);z-index:40;max-width:90vw;background:var(--ink);color:#fff;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--red);padding:.65rem 1rem;font-weight:700;font-size:.85rem;animation:toastin .3s cubic-bezier(.34,1.56,.64,1)}
+@keyframes fadein{from{opacity:0}}
+@keyframes popin{from{opacity:0;transform:translateY(30px) scale(.92)}}
+@keyframes toastin{from{opacity:0;transform:translateX(-50%) translateY(-20px)}}
+@media (prefers-reduced-motion:reduce){.dlg-back,.dlg,.toast{animation:none}}

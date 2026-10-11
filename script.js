@@ -57,6 +57,69 @@ async function initDashboard() {
   const mk = (tag, txt, cls) => { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
   const hue = (n) => [...n].reduce((a, c) => a + c.charCodeAt(0), 0) * 37 % 360;
   const av = (n, img) => { const e = mk("div", img ? "" : (n[0] || "?").toUpperCase(), "av"); e.style.background = img ? "url(" + img + ") center/cover" : "hsl(" + hue(n) + ",85%,78%)"; return e; };
+  const toast = (msg) => {
+    document.querySelectorAll(".toast").forEach((t) => t.remove());
+    const t = mk("div", msg, "toast"); t.setAttribute("role", "status"); document.body.append(t);
+    setTimeout(() => t.remove(), 3600);
+  };
+  /* Kotak dialog bergaya NOVA, pengganti prompt() bawaan browser. Hasil: objek isian, atau null kalau dibatalkan. */
+  function dialog({ title, desc, fields = [], contacts = null, ok = "Simpan" }) {
+    return new Promise((resolve) => {
+      const prev = document.activeElement;
+      const back = mk("div", null, "dlg-back"), box = mk("div", null, "dlg"), form = mk("form");
+      box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-labelledby", "dlg-t");
+      const h = mk("h2", title); h.id = "dlg-t"; form.append(h);
+      if (desc) form.append(mk("p", desc, "dlg-d"));
+      const els = {};
+      fields.forEach((f) => {
+        const lab = mk("label"), inp = mk(f.multiline ? "textarea" : "input");
+        inp.value = f.value || ""; inp.placeholder = f.placeholder || ""; inp.autocomplete = "off";
+        if (f.max) inp.maxLength = f.max;
+        if (f.multiline) inp.rows = 4;
+        if (f.inputmode) inp.inputMode = f.inputmode;
+        lab.append(mk("span", f.label), inp);
+        if (f.multiline && f.max) { const c = mk("small", inp.value.length + "/" + f.max, "dlg-c"); inp.addEventListener("input", () => (c.textContent = inp.value.length + "/" + f.max)); lab.append(c); }
+        form.append(lab); els[f.name] = inp;
+      });
+      const checks = [];
+      if (contacts) {
+        form.append(mk("span", "Tambah anggota dari teman tersimpan", "dlg-l"));
+        if (!contacts.length) form.append(mk("p", "Belum ada teman tersimpan. Simpan ID teman dulu, atau isi ID lain di atas.", "dlg-d"));
+        else {
+          const list = mk("div", null, "dlg-pick");
+          contacts.forEach((c) => { const l = mk("label", null, "pk"), cb = mk("input"); cb.type = "checkbox"; cb.value = c.player_id; checks.push(cb); l.append(cb, av(c.full_name, c.avatar), mk("span", c.full_name)); list.append(l); });
+          form.append(list);
+        }
+      }
+      const err = mk("p", "", "dlg-e"); err.setAttribute("role", "alert"); form.append(err);
+      const row = mk("div", null, "dlg-b"), no = mk("button", "Batal", "btn ghost"), yes = mk("button", ok, "btn");
+      no.type = "button"; yes.type = "submit"; row.append(no, yes); form.append(row);
+      box.append(form); back.append(box); document.body.append(back);
+      const done = (v) => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); resolve(v); };
+      const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); done(null); }
+        if (e.key === "Tab") {
+          const f = [...box.querySelectorAll("input,textarea,button")], a = f[0], z = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+          else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+        }
+      };
+      document.addEventListener("keydown", onKey, true);
+      no.onclick = () => done(null);
+      back.addEventListener("pointerdown", (e) => { if (e.target === back) done(null); });
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        const out = {};
+        for (const f of fields) {
+          out[f.name] = els[f.name].value.trim();
+          if (f.required && !out[f.name]) { err.textContent = f.label + " wajib diisi."; els[f.name].focus(); return; }
+        }
+        out.members = checks.filter((c) => c.checked).map((c) => c.value);
+        done(out);
+      };
+      const first = form.querySelector("input,textarea"); if (first) first.focus();
+    });
+  }
   const isRoom = (p) => p.startsWith("R-");
   const roomOf = (p) => st.rooms.find((r) => "R-" + r.id === p);
   const contact = (p) => st.contacts.find((c) => c.player_id === p);
@@ -237,7 +300,7 @@ async function initDashboard() {
     const v = $("#text").value.trim();
     if (!v || !st.cur) return;
     $("#text").value = ""; upd();
-    try { addMsg(await send(st.cur, "text", v)); } catch (err) { alert(err.message); }
+    try { addMsg(await send(st.cur, "text", v)); } catch (err) { toast(err.message); }
   };
   const upd = () => { const has = $("#text").value.trim().length > 0; $("#sendb").hidden = !has; $("#mic").hidden = has; };
   $("#text").oninput = upd;
@@ -249,11 +312,11 @@ async function initDashboard() {
   $("#plus").onclick = () => ($("#tray").hidden = !$("#tray").hidden);
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
   $("#mic").onclick = () => {
-    if (!SR) return alert("Browser ini belum mendukung dikte suara. Coba Chrome di Android.");
+    if (!SR) return toast("Browser ini belum mendukung dikte suara. Coba Chrome di Android.");
     if (rec) return rec.stop();
     rec = new SR(); rec.lang = "id-ID"; $("#mic").classList.add("rec");
     rec.onresult = (e) => { $("#text").value = ($("#text").value + " " + e.results[0][0].transcript).trim(); upd(); };
-    rec.onerror = (e) => { if (e.error === "not-allowed") alert("Izin mikrofon ditolak."); };
+    rec.onerror = (e) => { if (e.error === "not-allowed") toast("Izin mikrofon ditolak."); };
     rec.onend = () => { $("#mic").classList.remove("rec"); rec = null; };
     rec.start();
   };
@@ -262,18 +325,30 @@ async function initDashboard() {
       await api("/contacts", { method: "POST", body: JSON.stringify({ player_id: id }) });
       await loadContacts();
       if (st.cur) { $("#rtitle").textContent = nameOf(st.cur); $("#savebtn").hidden = saved(st.cur); }
-    } catch (e) { alert(e.message); }
+    } catch (e) { toast(e.message); }
   }
   $("#savebtn").onclick = () => saveId(st.cur);
-  async function mkRoom(body) { try { await api("/rooms", { method: "POST", body: JSON.stringify(body) }); loadRooms(); } catch (e) { alert(e.message); } }
-  $("#newgrp").onclick = () => {
-    const name = prompt("Nama grup"); if (!name) return;
-    const members = (prompt("ID anggota dipisah koma\nContoh: 48210377,63915204") || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-    mkRoom({ kind: "group", name, members });
+  async function mkRoom(body) { try { await api("/rooms", { method: "POST", body: JSON.stringify(body) }); loadRooms(); } catch (e) { toast(e.message); } }
+  $("#newgrp").onclick = async () => {
+    const r = await dialog({ title: "Buat grup", fields: [
+      { name: "name", label: "Nama grup", placeholder: "Contoh: Squad Mabar", max: 60, required: true },
+      { name: "extra", label: "ID lain (opsional, pisah koma)", placeholder: "48210377, 63915204", inputmode: "numeric" }], contacts: st.contacts, ok: "Buat grup" });
+    if (!r) return;
+    const members = [...new Set([...r.members, ...r.extra.split(",").map((x) => x.trim()).filter(Boolean)])];
+    mkRoom({ kind: "group", name: r.name, members });
   };
-  const newChannel = () => { const name = prompt("Nama saluran"); if (name) mkRoom({ kind: "channel", name, about: prompt("Deskripsi singkat") || "" }); };
+  const newChannel = async () => {
+    const r = await dialog({ title: "Buat saluran", desc: "Hanya kamu yang bisa posting. Orang lain mengikuti dan membaca.", fields: [
+      { name: "name", label: "Nama saluran", max: 60, required: true },
+      { name: "about", label: "Deskripsi singkat (opsional)", max: 200 }], ok: "Buat saluran" });
+    if (r) mkRoom({ kind: "channel", name: r.name, about: r.about });
+  };
   $("#fab").onclick = () => ({
-    home: () => { const id = (prompt("Masukkan ID teman (contoh 48210377)") || "").trim(); if (id) saveId(id); },
+    home: async () => {
+      const r = await dialog({ title: "Simpan ID teman", desc: "Masukkan ID angka temanmu. Setelah disimpan, dia tampil dengan namanya.", fields: [
+        { name: "id", label: "ID teman", placeholder: "contoh 48210377", inputmode: "numeric", max: 12, required: true }], ok: "Simpan" });
+      if (r) saveId(r.id);
+    },
     upd: () => storyImg(),
   }[st.tab] || (() => {}))();
   $("#fabt").onclick = () => storyText();
@@ -283,8 +358,11 @@ async function initDashboard() {
   $("#xsearch").oninput = render;
 
   /* ----- story ----- */
-  const postStory = (kind, body) => api("/stories", { method: "POST", body: JSON.stringify({ kind, body }) }).then(loadStories).catch((e) => alert(e.message));
-  const storyText = () => { const t = (prompt("Tulis story (maks 300 huruf)") || "").trim(); if (t) postStory("text", t); };
+  const postStory = (kind, body) => api("/stories", { method: "POST", body: JSON.stringify({ kind, body }) }).then(loadStories).catch((e) => toast(e.message));
+  const storyText = async () => {
+    const r = await dialog({ title: "Tulis story", desc: "Hilang otomatis setelah 24 jam.", fields: [{ name: "t", label: "Isi story", multiline: true, max: 300, required: true }], ok: "Posting" });
+    if (r) postStory("text", r.t);
+  };
   const storyImg = async () => postStory("img", await pick(640, 0.65, 190000));
   function viewStories(p) {
     const list = st.stories.filter((s) => s.owner === p);
@@ -302,7 +380,7 @@ async function initDashboard() {
   $("#svclose").onclick = () => ($("#sv").hidden = true);
 
   /* ----- profil ----- */
-  async function saveProfile(patch) { try { me = (await api("/profile", { method: "POST", body: JSON.stringify(patch) })).user; render(); } catch (e) { alert(e.message); } }
+  async function saveProfile(patch) { try { me = (await api("/profile", { method: "POST", body: JSON.stringify(patch) })).user; render(); } catch (e) { toast(e.message); } }
   $("#pphoto").onclick = async () => saveProfile({ avatar: await pick(160, 0.75, 140000) });
   $("#pcov").onclick = async () => saveProfile({ cover: await pick(720, 0.6, 190000) });
   $("#swpub").onclick = () => saveProfile({ public: me.public === false });
@@ -310,7 +388,10 @@ async function initDashboard() {
   $("#pedit").onclick = () => $("#pst").click();
   $("#pavb").onclick = () => $("#pphoto").click();
   $("#pdel").onclick = () => saveProfile({ avatar: "" });
-  $("#pst").onclick = () => { const t = prompt("Status kamu", me.status || ""); if (t !== null) saveProfile({ status: t.trim() }); };
+  $("#pst").onclick = async () => {
+    const r = await dialog({ title: "Ubah status", fields: [{ name: "s", label: "Status kamu", value: me.status || "", max: 80, placeholder: "Contoh: sibuk" }], ok: "Simpan" });
+    if (r) saveProfile({ status: r.s });
+  };
 
   /* ----- WebRTC native: STUN Google, signaling lewat /api/send + /api/poll ----- */
   const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
@@ -335,7 +416,7 @@ async function initDashboard() {
     if (stream) stream.getTracks().forEach((t) => t.stop());
     pc = stream = peer = offer = null; pend = [];
     $("#call").hidden = true; $("#incoming").hidden = true;
-    if (msg) alert(msg);
+    if (msg) toast(msg);
   }
   async function call(v) {
     if (peer || !st.cur) return;
@@ -388,7 +469,7 @@ async function initDashboard() {
       stream.addTrack(nt);
       pc.getSenders().find((s) => s.track && s.track.kind === "video").replaceTrack(nt);
       $("#local").srcObject = stream;
-    } catch { alert("Tidak bisa ganti kamera"); }
+    } catch { toast("Tidak bisa ganti kamera"); }
   };
   const L = $("#local"); let dx = 0, dy = 0, drag = false;
   L.onpointerdown = (e) => { drag = true; dx = e.clientX - L.offsetLeft; dy = e.clientY - L.offsetTop; L.setPointerCapture(e.pointerId); };
@@ -411,7 +492,7 @@ async function initDashboard() {
     try {
       const c = await navigator.credentials.create({ publicKey: { challenge: rnd(32), rp: { name: "NOVA WAWA" }, user: { id: rnd(16), name: me.player_id, displayName: me.full_name }, pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }], authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }, timeout: 60000 } });
       localStorage.setItem(LK, b64(c.rawId)); lockLabel();
-    } catch { alert("Perangkat atau browser ini tidak mendukung kunci sidik jari/PIN."); }
+    } catch { toast("Perangkat atau browser ini tidak mendukung kunci sidik jari/PIN."); }
   };
   lockLabel();
   if (localStorage.getItem(LK)) { $("#lock").hidden = false; unlock(); }
