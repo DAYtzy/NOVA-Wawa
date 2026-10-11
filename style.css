@@ -200,3 +200,7 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem 8rem}
 .splash b{font:700 1.4rem "Space Grotesk",sans-serif;letter-spacing:.3em;color:var(--y)}
 .splash.out{opacity:0;pointer-events:none}
 @media (prefers-reduced-motion:reduce){.ann .track{animation:none}.ann .track span:last-child{display:none}.splash{transition:none}.swb::after{transition:none}}
+
+/* video 16:9 di atas kartu login */
+.vbox{width:100%;max-width:420px;aspect-ratio:16/9;border:3px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:#000;overflow:hidden}
+.vbox video{display:block;width:100%;height:100%;object-fit:cover}
