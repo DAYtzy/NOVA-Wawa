@@ -4,7 +4,7 @@
     {
       "src": "app.py",
       "use": "@vercel/python",
-      "config": { "includeFiles": ["*.html", "*.css", "*.js", "logo.png"] }
+      "config": { "includeFiles": ["*.html", "*.css", "*.js", "logo.png", "login.mp4", "intro.mp4"] }
     }
   ],
   "routes": [{ "src": "/(.*)", "dest": "app.py" }]

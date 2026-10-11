@@ -18,7 +18,7 @@ init_db()
 ONLINE_SEC = 25
 VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") if x.strip()}  # ID yang dapat centang biru
 ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
-PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "style.css", "script.js", "logo.png"}
+PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "style.css", "script.js", "logo.png", "login.mp4", "intro.mp4"}
 
 
 def new_pid(db):

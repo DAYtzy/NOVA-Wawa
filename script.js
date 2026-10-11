@@ -19,6 +19,8 @@ function logout() {
 function initLogin() {
   if (getToken()) { location.href = "dashboard.html"; return; }
   const msg = $("#msg");
+  const lv = $("#lv");
+  if (lv) { if (matchMedia("(prefers-reduced-motion: reduce)").matches) lv.pause(); else lv.play().catch(() => {}); }
   document.querySelectorAll(".tab").forEach((t) =>
     t.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
@@ -449,8 +451,28 @@ function splash() {
   setTimeout(() => d.classList.add("out"), 1100); setTimeout(() => d.remove(), 1500);
 }
 
+function initLanding() {
+  const panel = $("#panel"), v = $("#bg");
+  if (v) { if (matchMedia("(prefers-reduced-motion: reduce)").matches) v.pause(); else v.play().catch(() => {}); }
+  if (getToken()) { const e = $("#enter"); e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; }
+  let on = false, last = 0, lx = 0, ly = 0;
+  const reveal = (x, y) => {
+    if (on) return; on = true;
+    if (x != null) { const r = document.createElement("div"); r.className = "ripple"; r.style.left = x + "px"; r.style.top = y + "px"; document.body.append(r); setTimeout(() => r.remove(), 800); }
+    document.body.classList.add("show");
+    panel.removeAttribute("inert"); panel.setAttribute("aria-hidden", "false");
+  };
+  document.addEventListener("pointerup", (e) => {
+    if (on) return;
+    if (e.timeStamp - last < 350 && Math.hypot(e.clientX - lx, e.clientY - ly) < 60) reveal(e.clientX, e.clientY);
+    last = e.timeStamp; lx = e.clientX; ly = e.clientY;
+  });
+  $("#hint").onclick = (e) => { if (e.detail === 0) reveal(); };  // tombol ini untuk pengguna keyboard / pembaca layar
+  document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === document.body) reveal(); });
+}
+
 const page = document.body.dataset.page;
-if (page === "landing" && getToken()) location.replace("dashboard.html");
-else if (page === "landing" || page === "dashboard") splash();
+if (page === "dashboard") splash();
+if (page === "landing") initLanding();
 if (page === "login") initLogin();
 if (page === "dashboard") initDashboard();

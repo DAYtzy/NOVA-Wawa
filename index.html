@@ -2,16 +2,22 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#000000">
 <title>NOVA WAWA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="landing">
-<main class="center">
-  <img src="logo.png" alt="NOVA WAWA" class="logo" onerror="this.style.display='none'">
-  <h1 class="glitch">NOVA WAWA</h1>
-  <p class="sub">Dapat ID unik, simpan ID teman, lalu chat, telpon, dan video call langsung dari browser.</p>
-  <a href="login.html" class="btn">MASUK / DAFTAR</a>
+<video id="bg" class="bgv" autoplay muted loop playsinline preload="auto" poster="logo.png" aria-hidden="true"><source src="intro.mp4" type="video/mp4"></video>
+<div class="shade" aria-hidden="true"></div>
+<button id="hint" class="taphint" type="button">Ketuk 2x layar untuk masuk</button>
+<main id="panel" class="lpanel" aria-hidden="true" inert>
+  <div class="lcard">
+    <img src="logo.png" alt="NOVA WAWA" class="logo small r r1" onerror="this.style.display='none'">
+    <h1 class="r r2">NOVA WAWA</h1>
+    <p class="sub r r3">Dapat ID unik, simpan ID teman, lalu chat, telpon, dan video call langsung dari browser.</p>
+    <a id="enter" href="login.html" class="btn r r4">MASUK / DAFTAR</a>
+  </div>
 </main>
 <script src="script.js"></script>
 </body>
