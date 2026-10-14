@@ -110,3 +110,23 @@ class ProfileExt(Base):  # tabel baru (bukan ALTER) supaya database Neon yang su
     public = Column(Boolean, default=True)      # Profil Publik
     show_seen = Column(Boolean, default=True)   # Terakhir Dilihat
     last_seen = Column(DateTime, nullable=True)
+
+
+class Sticker(Base):  # stiker disimpan sekali (id = hash isi), pesan hanya membawa "[stk:id]"
+    __tablename__ = "stickers"
+    id = Column(String(24), primary_key=True)
+    data = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class AppSetting(Base):  # pengaturan yang diubah owner dari aplikasi (mis. teks banner)
+    __tablename__ = "app_settings"
+    key = Column(String(40), primary_key=True)
+    value = Column(Text, default="")
+
+
+class UserFlag(Base):  # centang biru manual dan status blokir, diatur owner
+    __tablename__ = "user_flags"
+    player_id = Column(String(12), primary_key=True)
+    verified = Column(Boolean, nullable=True)  # None = aturan bawaan, True = beri centang, False = cabut
+    banned = Column(Boolean, default=False)

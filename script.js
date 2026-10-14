@@ -6,7 +6,13 @@ async function api(path, opts = {}) {
   if (getToken()) headers.Authorization = "Bearer " + getToken();
   const res = await fetch("/api" + path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Terjadi kesalahan");
+  if (!res.ok) {
+    if (res.status === 403 && data.banned) {  // akun diblokir owner: keluar dan tampilkan alasannya di halaman masuk
+      localStorage.removeItem("nova_token"); try { sessionStorage.setItem("nova_notice", data.error); } catch {}
+      if (!/login/.test(location.pathname)) location.href = "login.html";
+    }
+    throw new Error(data.error || "Terjadi kesalahan");
+  }
   return data;
 }
 
@@ -19,6 +25,7 @@ function logout() {
 function initLogin() {
   if (getToken()) { location.href = "dashboard.html"; return; }
   const msg = $("#msg");
+  try { const note = sessionStorage.getItem("nova_notice"); if (note) { msg.textContent = note; sessionStorage.removeItem("nova_notice"); } } catch {}
   const lv = $("#lv");
   if (lv) { if (matchMedia("(prefers-reduced-motion: reduce)").matches) lv.pause(); else lv.play().catch(() => {}); }
   document.querySelectorAll(".tab").forEach((t) =>
@@ -62,14 +69,19 @@ async function initDashboard() {
     const t = mk("div", msg, "toast"); t.setAttribute("role", "status"); document.body.append(t);
     setTimeout(() => t.remove(), 3600);
   };
+  const STK = /^\[stk:([0-9a-f]{24})\]$/;
+  const stkId = (b) => { const m = STK.exec(b || ""); return m && m[1]; };
+  const lastText = (b) => (stkId(b) ? "Stiker" : b);
+  const sha24 = async (t) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].slice(0, 12).map((x) => x.toString(16).padStart(2, "0")).join("");
   /* Kotak dialog bergaya NOVA, pengganti prompt() bawaan browser. Hasil: objek isian, atau null kalau dibatalkan. */
-  function dialog({ title, desc, fields = [], contacts = null, ok = "Simpan" }) {
+  function dialog({ title, desc, fields = [], contacts = null, ok = "Simpan", actions = [] }) {
     return new Promise((resolve) => {
       const prev = document.activeElement;
       const back = mk("div", null, "dlg-back"), box = mk("div", null, "dlg"), form = mk("form");
       box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-labelledby", "dlg-t");
       const h = mk("h2", title); h.id = "dlg-t"; form.append(h);
       if (desc) form.append(mk("p", desc, "dlg-d"));
+      actions.forEach((a) => { const b = mk("button", a.label, "btn full" + (a.danger ? "" : " ghost")); b.type = "button"; b.onclick = () => done({ action: a.key }); form.append(b); });
       const els = {};
       fields.forEach((f) => {
         const lab = mk("label"), inp = mk(f.multiline ? "textarea" : "input");
@@ -93,7 +105,7 @@ async function initDashboard() {
       }
       const err = mk("p", "", "dlg-e"); err.setAttribute("role", "alert"); form.append(err);
       const row = mk("div", null, "dlg-b"), no = mk("button", "Batal", "btn ghost"), yes = mk("button", ok, "btn");
-      no.type = "button"; yes.type = "submit"; row.append(no, yes); form.append(row);
+      no.type = "button"; yes.type = "submit"; if (ok === null) { no.textContent = "Tutup"; row.append(no); } else row.append(no, yes); form.append(row);
       box.append(form); back.append(box); document.body.append(back);
       const done = (v) => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); resolve(v); };
       const onKey = (e) => {
@@ -117,15 +129,16 @@ async function initDashboard() {
         out.members = checks.filter((c) => c.checked).map((c) => c.value);
         done(out);
       };
-      const first = form.querySelector("input,textarea"); if (first) first.focus();
+      const first = form.querySelector("input,textarea,button"); if (first) first.focus();
     });
   }
   const isRoom = (p) => p.startsWith("R-");
   const roomOf = (p) => st.rooms.find((r) => "R-" + r.id === p);
   const contact = (p) => st.contacts.find((c) => c.player_id === p);
   const saved = (p) => !!contact(p);
-  const nameOf = (p) => (p === me.player_id ? me.full_name : isRoom(p) ? (roomOf(p) || { name: "Grup" }).name : (contact(p) || { full_name: p }).full_name);
-  const imgOf = (p) => (p === me.player_id ? me.avatar : (contact(p) || {}).avatar);
+  const OFFICIAL = "NOVA";
+  const nameOf = (p) => (p === me.player_id ? me.full_name : p === OFFICIAL ? "NOVA WAWA" : isRoom(p) ? (roomOf(p) || { name: "Grup" }).name : (contact(p) || { full_name: p }).full_name);
+  const imgOf = (p) => (p === me.player_id ? me.avatar : p === OFFICIAL ? "logo.png" : (contact(p) || {}).avatar);
   const fmt = (t) => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const NS = "http://www.w3.org/2000/svg";
   const ic = (n, cls) => { const s = document.createElementNS(NS, "svg"), u = document.createElementNS(NS, "use"); s.setAttribute("class", "ic" + (cls ? " " + cls : "")); u.setAttribute("href", "#i-" + n); s.append(u); return s; };
@@ -138,6 +151,7 @@ async function initDashboard() {
     const li = mk("li", null, "item"), box = mk("div", null, "txt"), w = mk("div", null, "avw");
     const nb = mk("b", name);
     if (o.verified) nb.append(ic("seal"));
+    if (o.tag) nb.append(mk("i", o.tag, "own"));
     box.append(nb, mk("small", sub));
     w.append(o.avEl || av(name, img));
     if (o.online) w.append(mk("i", null, "on-dot"));
@@ -159,19 +173,19 @@ async function initDashboard() {
   });
   const pick = (max, q, lim) => new Promise((res) => { const f = $("#pick"); f.value = ""; f.onchange = () => f.files[0] && resize(f.files[0], max, q, lim).then(res); f.click(); });
 
-  const SCREENS = ["home", "upd", "calls", "profile", "room", "explore"];
-  const loaders = { upd: () => { loadStories(); loadRooms(); }, calls: loadCalls, explore: loadRooms };
-  const TITLES = { home: "NOVA WAWA", upd: "Pembaruan", calls: "Panggilan", profile: "Profil", explore: "Cari Saluran" };
+  const SCREENS = ["home", "upd", "calls", "profile", "room", "explore", "admin"];
+  const loaders = { upd: () => { loadStories(); loadRooms(); }, calls: loadCalls, explore: loadRooms, admin: () => { $("#abanner").value = me.announce || ""; loadAdmin(); } };
+  const TITLES = { home: "NOVA WAWA", upd: "Pembaruan", calls: "Panggilan", profile: "Profil", explore: "Cari Saluran", admin: "Panel Owner" };
   function show(id) {
-    if (id !== "room" && id !== "explore") st.tab = id;
+    st.screen = id; if (id !== "room" && id !== "explore" && id !== "admin") st.tab = id;
     SCREENS.forEach((s) => ($("#" + s).hidden = s !== id));
     if (TITLES[id]) {
       $("#htitle").textContent = TITLES[id]; $("#top").classList.toggle("c", id !== "home");
-      $("#clock").hidden = id !== "home"; $("#hback").hidden = id !== "explore"; $("#hnew").hidden = id !== "upd";
+      $("#clock").hidden = id !== "home"; $("#hback").hidden = !["explore", "admin"].includes(id); $("#hnew").hidden = id !== "upd";
     }
     $("#fab").hidden = !["home", "upd"].includes(id); $("#fabt").hidden = id !== "upd";
     $(".nav").hidden = id === "room" || id === "explore";
-    document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.s === (id === "explore" ? "upd" : id)));
+    document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.s === (id === "explore" ? "upd" : id === "admin" ? "profile" : id)));
     if (loaders[id]) loaders[id]();
     render();
   }
@@ -187,15 +201,15 @@ async function initDashboard() {
       b.onclick = () => (hasStory(c.player_id) ? viewStories(c.player_id) : open(c.player_id));
       return b;
     }));
-    const E = st.contacts.map((c) => ({ p: c.player_id, n: c.full_name, i: c.avatar, k: "dm", v: c.verified }));
+    const E = st.contacts.map((c) => ({ p: c.player_id, n: c.full_name, i: c.avatar, k: "dm", v: c.verified, tag: c.owner ? "OWNER" : "" }));
     st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind }));
-    Object.keys(st.last).forEach((k) => { if (!isRoom(k) && !saved(k) && k !== me.player_id) E.push({ p: k, n: k, k: "dm" }); });
+    Object.keys(st.last).forEach((k) => { if (!isRoom(k) && !saved(k) && k !== me.player_id) E.push({ p: k, n: nameOf(k), i: imgOf(k), k: "dm", v: k === OFFICIAL, tag: k === OFFICIAL ? "RESMI" : "" }); });
     const F = E.filter((e) => (st.filter === "all" || e.k === st.filter) && (e.n + e.p).toLowerCase().includes(q))
       .sort((a, b) => (Date.parse(st.lastT[b.p]) || 0) - (Date.parse(st.lastT[a.p]) || 0));
     $("#empty-list").hidden = F.length > 0;
     $("#empty-list").textContent = E.length ? "Tidak ada chat yang cocok." : "Belum ada chat. Tap + lalu masukkan ID temanmu untuk menyimpannya.";
-    $("#list").replaceChildren(...F.map((e) => row(e.i, e.n, st.last[e.p] || (e.k === "dm" ? e.p : e.k === "group" ? "Grup" : "Saluran"), () => open(e.p),
-      { time: st.lastT[e.p] ? short(st.lastT[e.p]) : "", badge: st.unread[e.p] || "", verified: e.v, avEl: e.k === "dm" ? null : chAv(e.k), online: e.k === "dm" && !!(st.seen[e.p] && st.seen[e.p].online) })));
+    $("#list").replaceChildren(...F.map((e) => row(e.i, e.n, lastText(st.last[e.p]) || (e.k === "dm" ? e.p : e.k === "group" ? "Grup" : "Saluran"), () => open(e.p),
+      { time: st.lastT[e.p] ? short(st.lastT[e.p]) : "", badge: st.unread[e.p] || "", verified: e.v, tag: e.tag, avEl: e.k === "dm" ? null : chAv(e.k), online: e.k === "dm" && !!(st.seen[e.p] && st.seen[e.p].online) })));
 
     /* Pembaruan: kartu status */
     const card = (o, label, onclick) => {
@@ -229,7 +243,7 @@ async function initDashboard() {
     $("#pname").textContent = me.full_name; $("#pstat").textContent = me.status || "Belum ada status";
     $("#pid").textContent = me.player_id; $("#pyear").textContent = "Lahir " + me.birth_year;
     $("#pcover").style.backgroundImage = me.cover ? 'url("' + me.cover + '")' : "";
-    $("#pver").toggleAttribute("hidden", !me.verified); $("#pvb").toggleAttribute("hidden", !me.verified); $("#copysub").textContent = me.player_id;
+    $("#pver").toggleAttribute("hidden", !me.verified); $("#pown").hidden = !me.owner; $("#admbtn").hidden = !me.is_owner; $("#pvb").toggleAttribute("hidden", !me.verified); $("#copysub").textContent = me.player_id;
     $("#swpub").setAttribute("aria-checked", String(me.public !== false)); $("#swseen").setAttribute("aria-checked", String(me.show_seen !== false));
   }
   async function loadContacts() { st.contacts = (await api("/contacts")).contacts; render(); }
@@ -244,7 +258,13 @@ async function initDashboard() {
       render();
     } catch {}
   }
-  async function loadPresence() { try { st.seen = (await api("/presence")).presence; refreshTicks(); roomSub(); render(); } catch {} }
+  async function loadPresence() {
+    try {
+      const r = await api("/presence"); st.seen = r.presence;
+      if (r.announce && r.announce !== me.announce) { me.announce = r.announce; $("#annt").textContent = $("#annt2").textContent = r.announce; }
+      refreshTicks(); roomSub(); render();
+    } catch {}
+  }
   async function loadRooms() { try { st.rooms = (await api("/rooms")).rooms; render(); } catch {} }
   const joinCh = (id) => api("/rooms/" + id + "/join", { method: "POST" }).then(loadRooms);
   $("#search").oninput = render;
@@ -266,6 +286,7 @@ async function initDashboard() {
   }
   function roomSub() {
     if (!st.cur || isRoom(st.cur)) return;
+    if (st.cur === OFFICIAL) { $("#rid").className = ""; $("#rid").textContent = "Akun resmi · hanya pengumuman"; return; }
     const s = st.seen[st.cur], el = $("#rid");
     el.className = s && s.online ? "on" : "";
     el.textContent = s ? (s.online ? "online" : "terakhir dilihat " + fmt(s.seen)) : st.cur;
@@ -273,9 +294,10 @@ async function initDashboard() {
   function addMsg(m) {
     const mine = m.sender === me.player_id, key = isRoom(m.to) || mine ? m.to : m.sender;
     st.last[key] = m.body; st.lastT[key] = m.t;
-    const r = roomOf(st.cur || ""), d = mk("div", null, "bub " + (mine ? "out" : "in")), box = mk("div"), mt = mk("div", null, "mt");
+    const r = roomOf(st.cur || ""), sid = stkId(m.body), d = mk("div", null, "bub " + (mine ? "out" : "in") + (sid ? " sticker" : "")), box = mk("div"), mt = mk("div", null, "mt");
     if (!mine && r && r.kind === "group") box.append(mk("small", nameOf(m.sender), "who"));
-    box.append(mk("span", m.body));
+    if (sid) { const im = mk("img", null, "smsg"); im.src = m.local || "/api/stickers/" + sid; im.alt = "Stiker"; box.append(im); }
+    else box.append(mk("span", m.body));
     mt.append(mk("time", tm(m.t)));
     if (mine) { d.dataset.to = m.to; d.dataset.t = m.t; mt.append(tick(m)); }
     d.append(box, mt);
@@ -286,11 +308,12 @@ async function initDashboard() {
     st.cur = p; st.unread[p] = 0;
     const r = roomOf(p);
     $("#rtitle").textContent = nameOf(p);
+    const ct = contact(p); if (ct && ct.owner) $("#rtitle").append(mk("i", "OWNER", "own")); if (p === OFFICIAL) $("#rtitle").append(mk("i", "RESMI", "own"));
     $("#rav").replaceChildren(av(nameOf(p), imgOf(p)));
     $("#rid").className = ""; $("#rid").textContent = r ? (r.kind === "group" ? "Grup" : "Saluran · " + r.count + " pengikut") : p;
     roomSub(); $("#tray").hidden = true;
-    $("#savebtn").hidden = !!r || saved(p); $("#vbtn").hidden = $("#abtn").hidden = !!r;
-    $("#form").hidden = !!r && r.kind === "channel" && r.owner !== me.player_id;
+    $("#savebtn").hidden = !!r || saved(p) || p === OFFICIAL; $("#vbtn").hidden = $("#abtn").hidden = !!r || p === OFFICIAL;
+    $("#form").hidden = (!!r && r.kind === "channel" && r.owner !== me.player_id) || p === OFFICIAL;
     $("#msgs").replaceChildren(); show("room");
     (await api("/history?peer=" + encodeURIComponent(p))).messages.forEach(addMsg);
     render();
@@ -310,12 +333,55 @@ async function initDashboard() {
   };
   const upd = () => { const has = $("#text").value.trim().length > 0; $("#sendb").hidden = !has; $("#mic").hidden = has; };
   $("#text").oninput = upd;
-  ["😀", "😂", "😍", "😭", "😎", "🙏", "👍", "🔥", "🎉", "❤️", "😅", "🤔"].forEach((em) => {
-    const b = mk("button", em); b.type = "button"; b.setAttribute("aria-label", "Emoji " + em);
-    b.onclick = () => { $("#text").value += em; upd(); $("#text").focus(); };
-    $("#tray").append(b);
-  });
-  $("#plus").onclick = () => ($("#tray").hidden = !$("#tray").hidden);
+  const EMO = "😀😃😄😁😆😅😂🤣🙂😉😊😇🥰😍😘😋😎🤩🥳😏😒😞😔😢😭😤😠🤯😱😳🤔🙄😴🤒🤢🙏👍👎👏🙌💪👀🔥✨🎉💯❤️💔💙💚💛🧡💜🖤".match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu) || [];
+  let trayTab = "emoji";
+  const UPK = "nova_stk_up";
+  const upGet = () => { try { return new Set(JSON.parse(localStorage.getItem(UPK) || "[]")); } catch { return new Set(); } };
+  async function ensureSticker(src, force) {  // unggah stiker ke server sekali saja (id = hash isinya)
+    const id = await sha24(src), up = upGet();
+    if (force || !up.has(id)) {
+      await api("/stickers", { method: "POST", body: JSON.stringify({ data: src }) });
+      up.add(id); try { localStorage.setItem(UPK, JSON.stringify([...up].slice(-300))); } catch {}
+    }
+    return id;
+  }
+  async function sendSticker(src) {
+    if (!st.cur) return;
+    const to = st.cur; $("#tray").hidden = true;
+    let id; try { id = await sha24(src); } catch { return toast("Browser ini belum mendukung kirim stiker."); }
+    const body = "[stk:" + id + "]";
+    const el = addMsg({ sender: me.player_id, to, kind: "text", body, local: src, t: new Date().toISOString(), pending: true });
+    try {
+      await ensureSticker(src);
+      let m;
+      try { m = await send(to, "text", body); }
+      catch (e) { if (!/Stiker/.test(e.message)) throw e; await ensureSticker(src, true); m = await send(to, "text", body); }
+      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t;
+      el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
+    } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Stiker gagal terkirim: " + err.message); }
+  }
+  function renderPanel() {
+    const t = $("#tray"), tabs = mk("div", null, "tp-tabs"), tg = mk("div", null, trayTab === "emoji" ? "emo" : "sc-grid");
+    [["emoji", "😀 Emoji"], ["stiker", "Stiker"]].forEach(([k, label]) => {
+      const b = mk("button", label, "pill" + (trayTab === k ? " on" : "")); b.type = "button"; b.setAttribute("aria-pressed", String(trayTab === k));
+      b.onclick = () => { trayTab = k; renderPanel(); }; tabs.append(b);
+    });
+    if (trayTab === "emoji") EMO.forEach((em) => { const b = mk("button", em); b.type = "button"; b.setAttribute("aria-label", "Emoji " + em); b.onclick = () => { $("#text").value += em; upd(); $("#text").focus(); }; tg.append(b); });
+    else {
+      const nb = mk("button", null, "cell addn"); nb.type = "button"; nb.append(ic("edit"), mk("span", "Buat stiker"));
+      nb.onclick = async () => { await stickerMaker(); renderPanel(); };
+      tg.append(nb);
+      mySt().forEach((src, i) => {
+        const cell = mk("div", null, "cell"), b = mk("button"), im = mk("img"); b.type = "button"; b.setAttribute("aria-label", "Kirim stiker " + (i + 1)); im.src = src; im.alt = ""; b.append(im); b.onclick = () => sendSticker(src);
+        const x = mk("button", "×", "rm"); x.type = "button"; x.setAttribute("aria-label", "Hapus stiker " + (i + 1));
+        x.onclick = () => { const a = mySt(); a.splice(i, 1); saveMySt(a); renderPanel(); };
+        cell.append(b, x); tg.append(cell);
+      });
+    }
+    t.replaceChildren(tabs, tg);
+    if (trayTab === "stiker" && !mySt().length) t.append(mk("p", "Belum ada stiker. Tap Buat stiker untuk membuatnya dari fotomu.", "hint"));
+  }
+  $("#plus").onclick = () => { const t = $("#tray"); t.hidden = !t.hidden; if (!t.hidden) renderPanel(); };
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
   $("#mic").onclick = () => {
     if (!SR) return toast("Browser ini belum mendukung dikte suara. Coba Chrome di Android.");
@@ -359,7 +425,7 @@ async function initDashboard() {
   }[st.tab] || (() => {}))();
   $("#fabt").onclick = () => storyText();
   $("#hnew").onclick = () => newChannel();
-  $("#hback").onclick = () => show("upd");
+  $("#hback").onclick = () => show(st.screen === "admin" ? "profile" : "upd");
   $("#explore-btn").onclick = () => show("explore");
   $("#xsearch").oninput = render;
 
@@ -369,7 +435,231 @@ async function initDashboard() {
     const r = await dialog({ title: "Tulis story", desc: "Hilang otomatis setelah 24 jam.", fields: [{ name: "t", label: "Isi story", multiline: true, max: 300, required: true }], ok: "Posting" });
     if (r) postStory("text", r.t);
   };
-  const storyImg = async () => postStory("img", await pick(640, 0.65, 190000));
+  const storyImg = async () => {
+    const photo = await pick(720, 0.85);
+    const out = await storyComposer(photo);
+    if (out) postStory("img", out);
+  };
+
+  /* ----- penyusun story foto: caption + stiker ----- */
+  const svgS = (inner) => "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 120 120" stroke="#111" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">' + inner + "</svg>");
+  const TX = (t, y, sz, fill, len) => '<text x="60" y="' + y + '" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="' + sz + '" text-anchor="middle" fill="' + fill + '" stroke="none" textLength="' + len + '" lengthAdjust="spacingAndGlyphs">' + t + "</text>";
+  const BUILTIN = [
+    ['Hati', '<path d="M60 104C20 74 10 48 28 32C42 20 56 28 60 40C64 28 78 20 92 32C110 48 100 74 60 104Z" fill="#FF4757"/><path d="M34 40c4-6 10-6 14-2" fill="none" stroke="#fff" stroke-width="5"/>'],
+    ['Bintang', '<polygon points="60,10 74,44 110,46 82,68 92,104 60,84 28,104 38,68 10,46 46,44" fill="#FFD93D"/>'],
+    ['Api', '<path d="M60 8C64 34 92 46 92 74C92 94 78 108 60 108C42 108 28 94 28 74C28 58 38 52 42 40C48 50 54 50 56 44C58 32 58 20 60 8Z" fill="#FF8A1F"/><path d="M60 62C66 74 76 78 76 90C76 99 69 104 60 104C51 104 44 99 44 90C44 80 56 74 60 62Z" fill="#FFD93D" stroke-width="4"/>'],
+    ['Petir', '<polygon points="70,8 24,68 54,68 44,112 96,46 66,46" fill="#FFD93D"/>'],
+    ['Mahkota', '<path d="M16 92L12 38L40 60L60 22L80 60L108 38L104 92Z" fill="#FFD93D"/><circle cx="60" cy="74" r="6" fill="#FF4757" stroke-width="4"/>'],
+    ['Keren', '<circle cx="60" cy="60" r="48" fill="#FFD93D"/><rect x="22" y="44" width="34" height="22" rx="6" fill="#111"/><rect x="64" y="44" width="34" height="22" rx="6" fill="#111"/><path d="M38 82q22 18 44 0" fill="none"/>'],
+    ['Sedih', '<circle cx="60" cy="60" r="48" fill="#7CC6FF"/><circle cx="42" cy="52" r="5" fill="#111"/><circle cx="78" cy="52" r="5" fill="#111"/><path d="M40 90q20-18 40 0" fill="none"/><path d="M84 62q8 12 0 20q-8-8 0-20Z" fill="#fff" stroke-width="4"/>'],
+    ['Oke', '<circle cx="60" cy="60" r="48" fill="#2ED573"/><path d="M34 62l18 18 34-38" fill="none" stroke="#111" stroke-width="20"/><path d="M34 62l18 18 34-38" fill="none" stroke="#fff" stroke-width="10"/>'],
+    ['WKWK', '<path d="M14 24Q14 12 26 12H94Q106 12 106 24V68Q106 80 94 80H62L40 106L44 80H26Q14 80 14 68Z" fill="#fff"/>' + TX("WKWK", 58, 26, "#FF4757", 76)],
+    ['MANTAP', '<rect x="6" y="36" width="108" height="48" rx="8" fill="#FFD93D"/>' + TX("MANTAP", 70, 24, "#111", 92)],
+    ['GAS', '<polygon points="60,6 72,26 96,18 92,42 114,54 92,66 98,92 72,86 60,110 48,86 22,92 28,66 6,54 28,42 24,18 48,26" fill="#FF4757"/>' + TX("GAS!", 68, 28, "#fff", 56)],
+    ['NOVA', '<rect x="8" y="34" width="104" height="52" rx="10" fill="#111"/>' + TX("NOVA", 70, 30, "#FFD93D", 80)],
+    ['SIAP', '<rect x="6" y="36" width="108" height="48" rx="8" fill="#fff"/>' + TX("SIAP", 70, 28, "#111", 72)],
+    ['KUY', '<rect x="14" y="34" width="92" height="52" rx="26" fill="#FF8AD8"/>' + TX("KUY", 70, 28, "#111", 52)],
+    ['Kilau', '<path d="M60 8Q64 52 112 60Q64 68 60 112Q56 68 8 60Q56 52 60 8Z" fill="#7CF2FF"/>'],
+  ].map(([name, inner]) => ({ name, src: svgS(inner) }));
+  const SK = "nova_stickers";
+  const mySt = () => { try { return JSON.parse(localStorage.getItem(SK) || "[]"); } catch { return []; } };
+  const saveMySt = (a) => { try { localStorage.setItem(SK, JSON.stringify(a.slice(0, 30))); return true; } catch { toast("Penyimpanan penuh. Hapus stiker lama dulu."); return false; } };
+  const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+  const pickFile = () => new Promise((res) => { const f = $("#pick"); f.value = ""; f.onchange = () => f.files[0] && res(f.files[0]); f.click(); });
+  const exportJpg = (c, lim) => {
+    let q = 0.85, out = c.toDataURL("image/jpeg", q);
+    while (out.length > lim && c.width > 200) {
+      if (q > 0.4) q -= 0.1;
+      else { const n = document.createElement("canvas"); n.width = Math.round(c.width * 0.85); n.height = Math.round(c.height * 0.85); n.getContext("2d").drawImage(c, 0, 0, n.width, n.height); c = n; q = 0.7; }
+      out = c.toDataURL("image/jpeg", q);
+    }
+    return out;
+  };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  async function stickerMaker() {
+    const file = await pickFile(), url = URL.createObjectURL(file); let im;
+    try { im = await loadImg(url); } catch { URL.revokeObjectURL(url); toast("Gambar tidak bisa dibuka."); return null; }
+    URL.revokeObjectURL(url);
+    return new Promise((resolve) => {
+      const prev = document.activeElement; let shape = "square", border = true, zoom = 1, ox = 0, oy = 0;
+      const back = mk("div", null, "sc-back"), box = mk("div", null, "scmp");
+      box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-label", "Buat stiker");
+      const bar = mk("div", null, "sc-bar"), no = mk("button", null, "hb"), go = mk("button", "Simpan", "btn");
+      no.type = go.type = "button"; no.setAttribute("aria-label", "Batal"); no.append(ic("x")); bar.append(no, mk("b", "Buat stiker"), go);
+      const wrap = mk("div", null, "sc-wrap"), cv = mk("canvas", null, "mk-cv"); cv.tabIndex = 0; cv.setAttribute("aria-label", "Pratinjau stiker. Geser untuk memosisikan foto."); wrap.append(cv);
+      const ctl = mk("div", null, "mk-ctl");
+      const zl = mk("label"), zr = mk("input"); zr.type = "range"; zr.min = 1; zr.max = 4; zr.step = 0.05; zr.value = 1; zl.append(mk("span", "Zoom (atau cubit layar)"), zr);
+      const row = mk("div", null, "sc-tabs"), bsq = mk("button", "Kotak", "pill on"), bci = mk("button", "Bulat", "pill"), bbo = mk("button", "Garis putih", "pill on");
+      [bsq, bci, bbo].forEach((b) => (b.type = "button")); bbo.setAttribute("aria-pressed", "true"); row.append(bsq, bci, bbo);
+      const tl = mk("label"), tin = mk("input"), bl = mk("label"), bin = mk("input");
+      tin.maxLength = bin.maxLength = 24; tin.autocomplete = bin.autocomplete = "off"; tin.placeholder = bin.placeholder = "Opsional";
+      tl.append(mk("span", "Teks atas"), tin); bl.append(mk("span", "Teks bawah"), bin);
+      ctl.append(zl, row, tl, bl); box.append(bar, wrap, ctl); back.append(box); document.body.append(back);
+
+      const rr = (g, x, y, w, h, r) => { g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+      const shp = (g, z, inset) => { g.beginPath(); if (shape === "circle") g.arc(z / 2, z / 2, z / 2 - inset, 0, Math.PI * 2); else rr(g, inset, inset, z - 2 * inset, z - 2 * inset, z * 0.14); };
+      const limit = () => {
+        const inner = 256 - 2 * (border ? 12 : 3), k = Math.max(inner / im.naturalWidth, inner / im.naturalHeight) * zoom;
+        const mx = Math.max(0, (im.naturalWidth * k - inner) / 2), my = Math.max(0, (im.naturalHeight * k - inner) / 2);
+        ox = clamp(ox, -mx, mx); oy = clamp(oy, -my, my);
+      };
+      const draw = (c, z) => {
+        const k = z / 256, g = c.getContext("2d"); c.width = c.height = z; g.clearRect(0, 0, z, z);
+        const ins = (border ? 12 : 3) * k, inner = z - 2 * ins;
+        if (border) { shp(g, z, 3 * k); g.fillStyle = "#fff"; g.fill(); }
+        g.save(); shp(g, z, ins); g.clip();
+        const sc = Math.max(inner / im.naturalWidth, inner / im.naturalHeight) * zoom, w = im.naturalWidth * sc, h = im.naturalHeight * sc;
+        g.drawImage(im, z / 2 - w / 2 + ox * k, z / 2 - h / 2 + oy * k, w, h); g.restore();
+        const txt = (t, top) => {
+          if (!t) return; t = t.toUpperCase(); let f = 38 * k; const F = () => (g.font = "900 " + f + 'px Impact,"Arial Black",Arial,sans-serif'); F();
+          while (g.measureText(t).width > inner * 0.9 && f > 10) { f -= 2; F(); }
+          g.textAlign = "center"; g.textBaseline = top ? "top" : "bottom"; g.lineJoin = "round"; g.lineWidth = Math.max(3, f / 5); g.strokeStyle = "#111"; g.fillStyle = "#fff";
+          const y = top ? ins + 8 * k : z - ins - 8 * k; g.strokeText(t, z / 2, y); g.fillText(t, z / 2, y);
+        };
+        txt(tin.value.trim(), true); txt(bin.value.trim(), false);
+      };
+      const redraw = () => { limit(); draw(cv, 256); };
+      const exportSt = () => {
+        const c = document.createElement("canvas"); let z = 256, u = "";
+        for (let i = 0; i < 3; i++) { draw(c, z); u = c.toDataURL("image/webp", 0.85); if (!u.startsWith("data:image/webp")) u = c.toDataURL("image/png"); if (u.length <= 100000) break; z = Math.round(z * 0.8); }
+        return u;
+      };
+      redraw();
+      const ptr = new Map(), dist = () => { if (ptr.size < 2) return 0; const [a, b] = [...ptr.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]); }; let pd = 0;
+      cv.onpointerdown = (e) => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, [e.clientX, e.clientY]); pd = dist(); };
+      cv.onpointermove = (e) => {
+        if (!ptr.has(e.pointerId)) return; const old = ptr.get(e.pointerId), f = 256 / cv.getBoundingClientRect().width; ptr.set(e.pointerId, [e.clientX, e.clientY]);
+        if (ptr.size === 1) { ox += (e.clientX - old[0]) * f; oy += (e.clientY - old[1]) * f; }
+        else { const d = dist(); if (pd) zoom = clamp(zoom * d / pd, 1, 4); pd = d; zr.value = zoom; }
+        redraw();
+      };
+      cv.onpointerup = cv.onpointercancel = (e) => { ptr.delete(e.pointerId); pd = dist(); };
+      cv.onkeydown = (e) => { const m = { ArrowLeft: [-8, 0], ArrowRight: [8, 0], ArrowUp: [0, -8], ArrowDown: [0, 8] }[e.key]; if (m) { e.preventDefault(); ox += m[0]; oy += m[1]; redraw(); } };
+      zr.oninput = () => { zoom = +zr.value; redraw(); };
+      tin.oninput = bin.oninput = redraw;
+      const setShape = (v) => { shape = v; bsq.classList.toggle("on", v === "square"); bci.classList.toggle("on", v === "circle"); redraw(); };
+      bsq.onclick = () => setShape("square"); bci.onclick = () => setShape("circle");
+      bbo.onclick = () => { border = !border; bbo.classList.toggle("on", border); bbo.setAttribute("aria-pressed", String(border)); redraw(); };
+      const done = (v) => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); resolve(v); };
+      const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); done(null); }
+        if (e.key === "Tab") {
+          const f = [...box.querySelectorAll("button:not([disabled]),input,canvas")], a = f[0], z = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+        }
+      };
+      document.addEventListener("keydown", onKey, true);
+      no.onclick = () => done(null);
+      go.onclick = () => { const u = exportSt(), a = mySt(); a.unshift(u); if (saveMySt(a)) { toast("Stiker disimpan"); done(u); } };
+      cv.focus();
+    });
+  }
+
+  function storyComposer(photo) {
+    return new Promise((resolve) => {
+      const prev = document.activeElement, items = []; let sel = null, tab = "builtin";
+      const back = mk("div", null, "sc-back"), box = mk("div", null, "scmp");
+      box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-label", "Story foto");
+      const bar = mk("div", null, "sc-bar"), no = mk("button", null, "hb"), go = mk("button", "Posting", "btn");
+      no.type = "button"; no.setAttribute("aria-label", "Batal"); no.append(ic("x")); go.type = "button";
+      bar.append(no, mk("b", "Story foto"), go);
+      const wrap = mk("div", null, "sc-wrap"), stage = mk("div", null, "sc-stage"), img = mk("img"), cap = mk("div", null, "sc-cap");
+      img.src = photo; img.alt = "Foto story"; img.draggable = false; cap.hidden = true;
+      stage.append(img, cap); wrap.append(stage);
+      const tools = mk("div", null, "sc-tools"), bm = mk("button", "−", "pill"), bp = mk("button", "+", "pill"), bd = mk("button", "Hapus", "pill"), bs = mk("button", "Stiker", "pill on");
+      [bm, bp, bd, bs].forEach((b) => (b.type = "button"));
+      bm.setAttribute("aria-label", "Kecilkan stiker"); bp.setAttribute("aria-label", "Besarkan stiker"); bd.setAttribute("aria-label", "Hapus stiker terpilih");
+      const sp = mk("span", null, "sp"); tools.append(bm, bp, bd, sp, bs);
+      const input = mk("input"); input.placeholder = "Tulis caption..."; input.maxLength = 120; input.autocomplete = "off"; input.setAttribute("aria-label", "Caption");
+      const capRow = mk("div", null, "sc-capin"); capRow.append(input);
+      const tray = mk("div", null, "sc-tray"), tabs = mk("div", null, "sc-tabs"), t1 = mk("button", "Bawaan", "pill on"), t2 = mk("button", "Stiker saya", "pill"), grid = mk("div", null, "sc-grid");
+      t1.type = t2.type = "button"; tabs.append(t1, t2); tray.append(tabs, grid);
+      box.append(bar, wrap, tools, capRow, tray); back.append(box); document.body.append(back);
+
+      const fit = () => (cap.style.fontSize = stage.clientWidth * 0.055 + "px");
+      const ro = window.ResizeObserver ? new ResizeObserver(fit) : null; if (ro) ro.observe(stage); img.onload = fit;
+      const place = (it) => { it.el.style.left = it.x * 100 + "%"; it.el.style.top = it.y * 100 + "%"; it.el.style.width = it.w * 100 + "%"; };
+      const select = (it) => { sel = it; items.forEach((x) => x.el.classList.toggle("sel", x === it)); bm.disabled = bp.disabled = bd.disabled = !it; };
+      const remove = (it) => { it.el.remove(); items.splice(items.indexOf(it), 1); select(null); };
+      function add(src) {
+        const n = items.length, el = mk("img", null, "stk"), it = { src, x: 0.3 + (n % 5) * 0.1, y: 0.35 + (n % 4) * 0.1, w: 0.3, el };
+        el.src = src; el.alt = "Stiker"; el.draggable = false; el.tabIndex = 0;
+        let drag = false;
+        el.onpointerdown = (e) => { e.preventDefault(); select(it); drag = true; el.setPointerCapture(e.pointerId); };
+        el.onpointermove = (e) => { if (!drag) return; const r = stage.getBoundingClientRect(); it.x = clamp((e.clientX - r.left) / r.width, 0, 1); it.y = clamp((e.clientY - r.top) / r.height, 0, 1); place(it); };
+        el.onpointerup = el.onpointercancel = () => (drag = false);
+        el.onfocus = () => select(it);
+        el.onkeydown = (e) => {
+          const st = 0.02, m = { ArrowLeft: [-st, 0], ArrowRight: [st, 0], ArrowUp: [0, -st], ArrowDown: [0, st] }[e.key];
+          if (m) { e.preventDefault(); it.x = clamp(it.x + m[0], 0, 1); it.y = clamp(it.y + m[1], 0, 1); place(it); }
+          else if (e.key === "+" || e.key === "=") { it.w = clamp(it.w + 0.05, 0.08, 0.9); place(it); }
+          else if (e.key === "-") { it.w = clamp(it.w - 0.05, 0.08, 0.9); place(it); }
+          else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(it); }
+        };
+        items.push(it); stage.append(el); place(it); select(it);
+      }
+      bm.onclick = () => { if (sel) { sel.w = clamp(sel.w - 0.05, 0.08, 0.9); place(sel); } };
+      bp.onclick = () => { if (sel) { sel.w = clamp(sel.w + 0.05, 0.08, 0.9); place(sel); } };
+      bd.onclick = () => sel && remove(sel);
+      stage.addEventListener("pointerdown", (e) => { if (e.target === img) select(null); });
+      select(null);
+
+      function renderTray() {
+        grid.replaceChildren();
+        t1.classList.toggle("on", tab === "builtin"); t2.classList.toggle("on", tab === "mine");
+        if (tab === "mine") {
+          const addb = mk("button", null, "cell addn"); addb.type = "button"; addb.setAttribute("aria-label", "Tambah stiker dari gambarmu"); addb.append(ic("plus"), mk("span", "Buat"));
+          addb.onclick = async () => { if (await stickerMaker()) renderTray(); };
+          grid.append(addb);
+        }
+        const list = tab === "builtin" ? BUILTIN : mySt().map((src, i) => ({ name: "Stiker saya " + (i + 1), src, mine: i }));
+        list.forEach((s) => {
+          const cell = mk("div", null, "cell"), b = mk("button"); b.type = "button"; b.setAttribute("aria-label", "Tambah stiker " + s.name);
+          const im = mk("img"); im.src = s.src; im.alt = ""; b.append(im); b.onclick = () => add(s.src); cell.append(b);
+          if (s.mine !== undefined) { const x = mk("button", "×", "rm"); x.type = "button"; x.setAttribute("aria-label", "Hapus " + s.name); x.onclick = () => { const a = mySt(); a.splice(s.mine, 1); saveMySt(a); renderTray(); }; cell.append(x); }
+          grid.append(cell);
+        });
+        if (tab === "mine" && !mySt().length) grid.append(mk("p", "Belum ada stiker. Tap Tambah untuk membuat stiker dari fotomu.", "hint"));
+      }
+      t1.onclick = () => { tab = "builtin"; renderTray(); };
+      t2.onclick = () => { tab = "mine"; renderTray(); };
+      bs.onclick = () => { tray.hidden = !tray.hidden; bs.classList.toggle("on", !tray.hidden); };
+      renderTray();
+
+      input.oninput = () => { const v = input.value.trim(); cap.textContent = v; cap.hidden = !v; fit(); };
+      async function flatten() {
+        const base = await loadImg(photo), W = base.naturalWidth, H = base.naturalHeight;
+        const c = document.createElement("canvas"); c.width = W; c.height = H;
+        const g = c.getContext("2d"); g.drawImage(base, 0, 0);
+        for (const it of items) { const im = await loadImg(it.src), w = it.w * W, h = (w * im.naturalHeight) / im.naturalWidth; g.drawImage(im, it.x * W - w / 2, it.y * H - h / 2, w, h); }
+        const text = input.value.trim();
+        if (text) {
+          const f = Math.round(W * 0.055), lh = f * 1.3, lines = []; let cur = "";
+          g.font = "700 " + f + 'px "Space Grotesk", Arial, sans-serif';
+          text.split(/\s+/).forEach((w) => { const t = cur ? cur + " " + w : w; if (g.measureText(t).width > W * 0.92 && cur) { lines.push(cur); cur = w; } else cur = t; });
+          if (cur) lines.push(cur);
+          const bh = lines.length * lh + f * 0.8;
+          g.fillStyle = "rgba(17,17,17,.75)"; g.fillRect(0, H - bh, W, bh);
+          g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+          lines.forEach((l, i) => g.fillText(l, W / 2, H - bh + f * 0.4 + lh * (i + 0.5)));
+        }
+        return exportJpg(c, 190000);
+      }
+      const done = (v) => { document.removeEventListener("keydown", onKey, true); if (ro) ro.disconnect(); back.remove(); if (prev && prev.focus) prev.focus(); resolve(v); };
+      const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); done(null); }
+        if (e.key === "Tab") {
+          const f = [...box.querySelectorAll("button:not([disabled]),input,img.stk")].filter((x) => !x.closest("[hidden]")), a = f[0], z = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+        }
+      };
+      document.addEventListener("keydown", onKey, true);
+      no.onclick = () => done(null);
+      go.onclick = async () => { go.disabled = true; go.textContent = "Memproses..."; try { done(await flatten()); } catch { go.disabled = false; go.textContent = "Posting"; toast("Gagal memproses gambar."); } };
+      input.focus();
+    });
+  }
   function viewStories(p) {
     const list = st.stories.filter((s) => s.owner === p);
     if (!list.length) return;
@@ -570,6 +860,62 @@ async function initDashboard() {
   /* ----- polling pesan + sinyal ----- */
   await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence()]);
   show("home");
+  /* ----- panel owner ----- */
+  const ago = (t) => { if (!t) return "belum pernah"; const d = (Date.now() - Date.parse(t)) / 1000; if (d < 90) return "baru saja"; if (d < 3600) return Math.round(d / 60) + " mnt lalu"; if (d < 86400) return Math.round(d / 3600) + " jam lalu"; return Math.round(d / 86400) + " hari lalu"; };
+  const dshort = (t) => (t ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "-");
+  const adm = { stats: null };
+  const emptyLi = (t) => { const li = mk("li", t, "hint"); return li; };
+  async function loadAdmin() {
+    try {
+      const q = $("#ausearch").value.trim();
+      const [s, u, r] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/rooms")]);
+      adm.stats = s;
+      $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
+      $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
+        () => userActions(x), { verified: x.verified, tag: x.owner ? "OWNER" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
+      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
+    } catch (e) { toast(e.message); }
+  }
+  async function userActions(x) {
+    const r = await dialog({ title: x.full_name, desc: "ID " + x.player_id + (x.banned ? " · sedang diblokir" : ""), ok: null, actions: [
+      { key: "verify", label: x.verified ? "Cabut centang biru" : "Beri centang biru" },
+      ...(x.owner ? [] : [{ key: "block", label: x.banned ? "Buka blokir" : "Blokir akun" }, { key: "delete", label: "Hapus akun", danger: true }])] });
+    if (!r) return;
+    try {
+      if (r.action === "verify") await api("/admin/users/" + x.player_id + "/verify", { method: "POST", body: JSON.stringify({ value: !x.verified }) });
+      else if (r.action === "block") {
+        if (!x.banned && !(await dialog({ title: "Blokir " + x.full_name + "?", desc: "Dia langsung tidak bisa masuk atau memakai aplikasi sampai blokirnya dibuka.", ok: "Blokir" }))) return;
+        await api("/admin/users/" + x.player_id + "/block", { method: "POST", body: JSON.stringify({ value: !x.banned }) });
+      } else if (r.action === "delete") {
+        if (!(await dialog({ title: "Hapus akun " + x.full_name + "?", desc: "Akun, semua pesan, kontak, story, serta grup dan saluran miliknya dihapus permanen. Tidak bisa dibatalkan.", ok: "Hapus permanen" }))) return;
+        await api("/admin/users/" + x.player_id, { method: "DELETE" });
+      }
+      toast("Berhasil"); loadAdmin();
+    } catch (e) { toast(e.message); }
+  }
+  async function roomActions(x) {
+    const jenis = x.kind === "group" ? "grup" : "saluran";
+    const r = await dialog({ title: x.name, desc: jenis + " · " + x.count + " anggota", ok: null, actions: [{ key: "delete", label: "Hapus " + jenis, danger: true }] });
+    if (!r) return;
+    if (!(await dialog({ title: "Hapus " + x.name + "?", desc: "Semua pesan di dalamnya ikut terhapus permanen.", ok: "Hapus permanen" }))) return;
+    try { await api("/admin/rooms/" + x.id, { method: "DELETE" }); toast("Dihapus"); loadAdmin(); loadRooms(); } catch (e) { toast(e.message); }
+  }
+  $("#abset").onclick = async () => {
+    try {
+      const r = await api("/admin/banner", { method: "POST", body: JSON.stringify({ text: $("#abanner").value.trim() }) });
+      me.announce = r.announce; $("#annt").textContent = $("#annt2").textContent = r.announce; $("#abanner").value = r.announce; toast("Banner diperbarui");
+    } catch (e) { toast(e.message); }
+  };
+  $("#abreset").onclick = () => { $("#abanner").value = ""; $("#abset").click(); };
+  $("#acastgo").onclick = async () => {
+    const text = $("#acast").value.trim();
+    if (!text) return toast("Tulis isi pengumuman dulu.");
+    if (!(await dialog({ title: "Kirim ke " + (adm.stats ? adm.stats.users : "semua") + " pengguna?", desc: "Pesan ini muncul di chat setiap pengguna sebagai pesan dari NOVA WAWA (akun resmi).", ok: "Kirim" }))) return;
+    try { const r = await api("/admin/announce", { method: "POST", body: JSON.stringify({ text }) }); $("#acast").value = ""; toast("Terkirim ke " + r.sent + " pengguna"); } catch (e) { toast(e.message); }
+  };
+  let adT; $("#ausearch").oninput = () => { clearTimeout(adT); adT = setTimeout(loadAdmin, 350); };
+  $("#admbtn").onclick = () => show("admin");
+
   let last = (await api("/poll")).last, t1 = Date.now(), t2 = Date.now();
   (async function tick() {
     let wait = 50;

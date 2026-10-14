@@ -74,7 +74,7 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem 8rem}
 .chips .ic{width:1.1em;height:1.1em}
 .chips .on{background:var(--red);color:#fff;box-shadow:3px 3px 0 var(--ink)}
 /* daftar */
-.list{list-style:none;margin:0;padding:0;display:grid;gap:.8rem}
+.list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:.8rem}
 .item{position:relative;display:flex;gap:.8rem;align-items:center;background:#fff;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:.7rem;cursor:pointer}
 .item:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
 .item div{min-width:0}
@@ -156,7 +156,7 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem 8rem}
 .cb{display:grid;place-items:center;width:44px;height:44px;flex:none;padding:0;background:var(--y);border:3px solid var(--ink);box-shadow:2px 2px 0 var(--ink);cursor:pointer}
 .cb:active{transform:translate(2px,2px);box-shadow:none}
 .cb.go,.cb.rec{background:var(--red);color:#fff}
-.tray{display:flex;gap:.2rem;flex-wrap:wrap;background:#fff;border-top:3px solid var(--ink);padding:.4rem}
+.tray{display:block;background:#fff;border-top:3px solid var(--ink);padding:.5rem;max-height:42dvh;overflow:auto}
 .tray button{font-size:1.5rem;background:none;border:0;padding:.2rem .4rem;cursor:pointer}
 /* FAB + navigasi */
 .fab{display:grid;place-items:center;position:fixed;right:1rem;bottom:5.6rem;width:60px;height:60px;background:var(--red);color:#fff;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink);cursor:pointer;z-index:3;padding:0}
@@ -273,3 +273,63 @@ textarea:focus-visible{outline:3px solid var(--red);outline-offset:2px}
 .ctrl{z-index:3}
 .bub .tk.fail{color:var(--red)}
 @media (prefers-reduced-motion:reduce){.call:not(.on) .cav .av,.incoming .cav .av{animation:none}}
+
+/* penyusun story foto: caption + stiker */
+.sc-back{position:fixed;inset:0;z-index:30;background:rgba(17,17,17,.7);display:grid;place-items:center;animation:fadein .2s}
+.scmp{width:min(460px,100%);height:100dvh;max-height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);border:0 solid var(--ink);border-width:0 3px}
+.sc-bar{display:flex;align-items:center;gap:.6rem;background:var(--y);border-bottom:3px solid var(--ink);padding:.5rem .7rem}
+.sc-bar b{flex:1;font-size:1.05rem}
+.sc-bar .btn{padding:.5rem 1rem}
+.sc-wrap{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;padding:.8rem;background:#2a2a2a}
+.sc-stage{position:relative;display:inline-block;line-height:0;border:3px solid var(--ink);background:#000;touch-action:none;max-width:100%}
+.sc-stage>img{display:block;max-width:100%;max-height:46dvh;user-select:none;-webkit-user-drag:none}
+.sc-cap{position:absolute;left:0;right:0;bottom:0;padding:.4em .5em;background:rgba(17,17,17,.75);color:#fff;text-align:center;font-weight:700;line-height:1.3;word-break:break-word;pointer-events:none}
+.stk{position:absolute;transform:translate(-50%,-50%);height:auto;touch-action:none;cursor:grab;user-select:none;-webkit-user-drag:none}
+.stk.sel{outline:3px dashed var(--y);outline-offset:3px;background:rgba(255,217,61,.12)}
+.sc-tools{display:flex;gap:.5rem;align-items:center;padding:.5rem .7rem;background:var(--bg);border-top:3px solid var(--ink)}
+.sc-tools .sp{flex:1}
+.sc-tools .pill{padding:.35rem .8rem}
+.sc-tools .pill:disabled{opacity:.4}
+.pill.on{background:var(--y)}
+.sc-capin{padding:0 .7rem .6rem;background:var(--bg)}
+.sc-capin input{width:100%}
+.sc-tray{background:#fff;border-top:3px solid var(--ink);padding:.5rem;max-height:30dvh;overflow:auto}
+.sc-tabs{display:flex;gap:.5rem;margin-bottom:.5rem}
+.sc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem}
+.sc-grid .cell{position:relative}
+.sc-grid .cell>button:first-child{width:100%;aspect-ratio:1;display:grid;place-items:center;background:var(--bg);border:3px solid var(--ink);padding:.2rem;cursor:pointer}
+.sc-grid .cell:active>button:first-child{background:var(--y)}
+.sc-grid img{width:100%;height:100%;object-fit:contain;pointer-events:none}
+.sc-grid .rm{position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;background:var(--red);color:#fff;border:2px solid var(--ink);font-weight:700;line-height:1;cursor:pointer;padding:0}
+.sc-grid .addn{flex-direction:column;gap:.2rem;font-size:.7rem;font-weight:700;aspect-ratio:1;display:grid;place-items:center;align-content:center;background:var(--y);border:3px dashed var(--ink);cursor:pointer;color:var(--ink)}
+.sc-grid .hint{grid-column:1/-1;margin:0}
+
+/* panel emoji + stiker di chat, pembuat stiker */
+.tp-tabs{display:flex;gap:.5rem;margin-bottom:.5rem}
+.emo{display:grid;grid-template-columns:repeat(8,1fr);gap:.1rem}
+.emo button{font-size:1.5rem}
+.bub.sticker{background:none;border:0;box-shadow:none;padding:0;flex-direction:column;gap:.2rem}
+.bub.sticker.out{align-items:flex-end}
+.bub.sticker.in{align-items:flex-start}
+.smsg{display:block;width:150px;height:150px;object-fit:contain}
+.bub.sticker .mt{margin:0;background:rgba(17,17,17,.65);padding:.05rem .4rem}
+.bub.sticker time{color:#fff}
+.bub.sticker .tk{color:#fff}
+.bub.sticker .tk.seen{color:#7CC6FF}
+.mk-cv{width:min(300px,78vw);height:auto;aspect-ratio:1;background:conic-gradient(#d8d8d8 25%,#fff 0 50%,#d8d8d8 0 75%,#fff 0) 0 0/20px 20px;border:3px solid var(--ink);touch-action:none;cursor:grab}
+.mk-ctl{display:grid;gap:.6rem;padding:.7rem;background:var(--bg);border-top:3px solid var(--ink);overflow:auto;max-height:44dvh}
+.mk-ctl label{gap:.2rem;font-size:.8rem}
+.mk-ctl input[type=range]{padding:0;accent-color:var(--red)}
+
+/* lencana owner + panel owner */
+.own{font-style:normal;font-size:.62rem;font-weight:700;background:var(--red);color:#fff;border:2px solid var(--ink);padding:0 .35rem;margin-left:.4rem;vertical-align:.1em;letter-spacing:.06em}
+.astats{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:.4rem}
+.astat{background:#fff;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:.6rem .3rem;text-align:center}
+.astat b{display:block;font:700 1.5rem "Space Grotesk",sans-serif}
+.astat small{font-size:.65rem;color:var(--mut)}
+.card2.col{flex-direction:column;align-items:stretch;gap:.7rem;cursor:default}
+.arow{display:flex;gap:.6rem}
+.arow .btn{flex:1;padding:.6rem .4rem}
+.card2.col textarea,.card2.col input{width:100%}
+.dlg .btn.full{width:100%;text-align:center}
+#admin .sec{margin-top:1.4rem}

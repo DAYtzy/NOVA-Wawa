@@ -83,7 +83,7 @@
       <div class="pbody">
         <div class="pav"><button id="pavb" class="avbtn" aria-label="Ganti foto profil"><span id="pav"></span></button>
           <svg id="pvb" class="vbc" viewBox="0 0 24 24" role="img" aria-label="Akun terverifikasi" hidden><circle cx="12" cy="12" r="12" fill="#2F9BFF"/><path d="M7 12.5l3.2 3.2 6.3-6.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="nm"><b id="pname"></b><svg id="pver" class="ic seal" hidden><use href="#i-seal"/></svg><button id="pst" class="pen" aria-label="Edit status"><svg class="ic"><use href="#i-edit"/></svg></button></div>
+        <div class="nm"><b id="pname"></b><svg id="pver" class="ic seal" hidden><use href="#i-seal"/></svg><i id="pown" class="own" hidden>OWNER</i><button id="pst" class="pen" aria-label="Edit status"><svg class="ic"><use href="#i-edit"/></svg></button></div>
         <div id="pid" class="pid"></div>
         <p id="pstat" class="pstat"></p><small id="pyear"></small>
         <button id="pedit" class="outline"><svg class="ic"><use href="#i-edit"/></svg>Edit Status</button>
@@ -92,12 +92,27 @@
     <div class="card2 sw"><svg class="ic lead"><use href="#i-globe"/></svg><span><b>Profil Publik</b><small>Siapa pun bisa melihat foto dan statusmu</small></span><button id="swpub" class="swb" role="switch" aria-checked="true" aria-label="Profil publik"></button></div>
     <p class="lab">PRIVASI</p>
     <div class="card2 sw"><svg class="ic lead"><use href="#i-clock"/></svg><span><b>Tampilkan Terakhir Dilihat</b><small>Orang lain bisa lihat kapan kamu terakhir online</small></span><button id="swseen" class="swb" role="switch" aria-checked="true" aria-label="Terakhir dilihat"></button></div>
+    <button id="admbtn" class="card2 setr" hidden><svg class="ic lead"><use href="#i-lock"/></svg><span><b>Panel Owner</b><small>Kelola pengguna, banner, dan pengumuman</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <p class="lab">AKUN</p>
     <button id="pphoto" class="card2 setr"><svg class="ic lead"><use href="#i-camera"/></svg><span><b>Ganti foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="pdel" class="card2 setr"><svg class="ic lead"><use href="#i-trash"/></svg><span><b>Hapus foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="copy" class="card2 setr"><svg class="ic lead"><use href="#i-copy"/></svg><span><b>Salin ID</b><small id="copysub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="lockbtn" class="card2 setr"><svg class="ic lead"><use href="#i-fp"/></svg><span><b>Kunci aplikasi</b><small></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="logout" class="card2 setr out"><svg class="ic lead"><use href="#i-logout"/></svg><span><b>Logout</b></span></button>
+  </section>
+  <section id="admin" hidden>
+    <p class="hint l">Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server.</p>
+    <h2 class="sec">Statistik</h2>
+    <div id="astats" class="astats"></div>
+    <h2 class="sec">Banner pengumuman</h2>
+    <div class="card2 col"><input id="abanner" maxlength="300" placeholder="Teks banner di halaman Chat" aria-label="Teks banner"><div class="arow"><button id="abset" class="btn">Simpan banner</button><button id="abreset" class="btn ghost">Reset</button></div></div>
+    <h2 class="sec">Kirim ke semua</h2>
+    <div class="card2 col"><textarea id="acast" rows="3" maxlength="500" placeholder="Tulis pengumuman. Muncul di chat setiap pengguna sebagai pesan dari NOVA WAWA." aria-label="Isi pengumuman"></textarea><button id="acastgo" class="btn">Kirim ke semua pengguna</button></div>
+    <h2 class="sec">Pengguna</h2>
+    <div class="sbox big"><svg class="ic"><use href="#i-search"/></svg><input id="ausearch" placeholder="Cari nama atau ID..." aria-label="Cari pengguna"></div>
+    <ul id="ausers" class="list"></ul>
+    <h2 class="sec">Grup dan saluran</h2>
+    <ul id="arooms" class="list"></ul>
   </section>
 </main>
 <section id="room" hidden>

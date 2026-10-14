@@ -1,20 +1,24 @@
-import os, json, time, secrets, string
+import os, re, json, time, base64, hashlib, secrets, string
 from datetime import datetime, timedelta
 from functools import wraps
 import bcrypt
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
-from database import Session, User, Contact, Message, Profile, ProfileExt, Story, Room, RoomMember, Call, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Story, Room, RoomMember, Call, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 ser = URLSafeTimedSerializer(os.getenv("SECRET_KEY", "dev-secret-change-me"))
 init_db()
 
+STK_RE = re.compile(r"^\[stk:([0-9a-f]{24})\]$")
+STK_DATA = re.compile(r"^data:image/(png|webp);base64,[A-Za-z0-9+/=]+$")
+OFFICIAL = "NOVA"  # akun resmi pengirim pengumuman (tidak bisa login)
+OWNER_IDS = {x.strip().upper() for x in os.getenv("OWNER_IDS", "").split(",") if x.strip()}  # kosong = akun pertama yang mendaftar
 ONLINE_SEC = 25
 VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") if x.strip()}  # ID yang dapat centang biru
 ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
@@ -50,6 +54,39 @@ def migrate_ids():
 migrate_ids()
 
 
+_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": ""}
+
+
+def flags(db):
+    """Daftar blokir, centang manual, dan banner. Disimpan di memori ~15 detik supaya tidak membebani database."""
+    if time.time() - _cache["t"] > 15:
+        try:
+            rows = db.query(UserFlag).all()
+            a = db.get(AppSetting, "announce")
+            _cache.update(t=time.time(), banned={r.player_id for r in rows if r.banned},
+                          vfy={r.player_id: r.verified for r in rows if r.verified is not None},
+                          announce=(a.value if a and a.value else ""))
+            if _cache["first"] is None:
+                _cache["first"] = db.query(func.min(User.id)).filter(User.player_id != OFFICIAL).scalar()
+        except Exception as e:
+            db.rollback()
+            print("flags gagal:", e)
+    return _cache
+
+
+def is_owner(u):
+    if OWNER_IDS:
+        return u.player_id in OWNER_IDS
+    return _cache["first"] is not None and u.id == _cache["first"]
+
+
+def is_verified(u):
+    v = _cache["vfy"].get(u.player_id)
+    if v is not None:
+        return v
+    return u.player_id == OFFICIAL or is_owner(u) or u.id == _cache["first"] or u.player_id in VERIFIED
+
+
 def authed(f):
     @wraps(f)
     def w(*a, **k):
@@ -60,8 +97,34 @@ def authed(f):
                 u = None
             if not u:
                 return jsonify(error="Unauthorized"), 401
+            if u.player_id in flags(db)["banned"]:
+                return jsonify(error="Akunmu diblokir oleh admin.", banned=True), 403
             return f(db, u, *a, **k)
     return w
+
+
+def owner_only(f):
+    @authed
+    @wraps(f)
+    def w(db, u, *a, **k):
+        if not is_owner(u):
+            return jsonify(error="Khusus owner."), 403
+        return f(db, u, *a, **k)
+    return w
+
+
+def ensure_official():
+    try:
+        with Session() as db:
+            if not db.query(User.id).filter_by(player_id=OFFICIAL).first():
+                db.add(User(player_id=OFFICIAL, full_name="NOVA WAWA", birth_year=2024, email="official@nova.invalid",
+                            password_hash=bcrypt.hashpw(secrets.token_hex(24).encode(), bcrypt.gensalt()).decode()))
+                db.commit()
+    except Exception as e:  # jangan sampai aplikasi gagal start
+        print("ensure_official gagal:", e)
+
+
+ensure_official()
 
 
 EMPTY = {"avatar": "", "status": "", "cover": "", "public": True, "show_seen": True, "last_seen": None}
@@ -79,10 +142,10 @@ def prof(db, ids):
 
 def pub(u, pr, mine=False):
     d = pr.get(u.player_id, EMPTY)
-    o = {**u.public(), "verified": u.id == 1 or u.player_id in VERIFIED}
+    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u)}
     if mine:
         o.update(avatar=d["avatar"], status=d["status"], cover=d["cover"], public=d["public"],
-                 show_seen=d["show_seen"], announce=ANNOUNCE)
+                 show_seen=d["show_seen"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL)
     elif d["public"]:  # profil privat: foto & status disembunyikan dari orang lain
         o.update(avatar=d["avatar"], status=d["status"])
     else:
@@ -145,8 +208,12 @@ def login():
     d = request.get_json(silent=True) or {}
     with Session() as db:
         u = db.query(User).filter_by(email=(d.get("email") or "").strip().lower()).first()
-        if not u or not bcrypt.checkpw((d.get("password") or "").encode(), u.password_hash.encode()):
+        if not u or u.player_id == OFFICIAL or not bcrypt.checkpw((d.get("password") or "").encode(), u.password_hash.encode()):
             return jsonify(error="Email atau password salah."), 401
+        if u.player_id == OFFICIAL:
+            return jsonify(error="Email atau password salah."), 401
+        if u.player_id in flags(db)["banned"]:
+            return jsonify(error="Akunmu diblokir oleh admin.", banned=True), 403
         return jsonify(token=ser.dumps(u.id), user=u.public())
 
 
@@ -188,6 +255,12 @@ def send(db, u):
     body, to = (d.get("body") or "")[:20000 if kind == "sig" else 4000], d.get("to") or ""
     if kind == "text":
         body = body.strip()
+        if body.startswith("[stk:"):
+            mm = STK_RE.match(body)
+            if not mm or not db.get(Sticker, mm.group(1)):
+                return jsonify(error="Stiker tidak ditemukan."), 400
+    if kind == "text" and to == OFFICIAL:
+        return jsonify(error="Akun resmi hanya mengirim pengumuman."), 400
     if kind == "text" and to.startswith("R-") and to[2:].isdigit():
         r = db.get(Room, int(to[2:]))
         ok = r and db.query(RoomMember.id).filter_by(room_id=r.id, player_id=u.player_id).first() \
@@ -202,6 +275,182 @@ def send(db, u):
     db.add(m)
     db.commit()
     return jsonify(m.public())
+
+
+@app.post("/api/stickers")
+@authed
+def sticker_up(db, u):
+    d = (request.get_json(silent=True) or {}).get("data") or ""
+    if len(d) > 120000 or not STK_DATA.match(d):
+        return jsonify(error="Stiker tidak valid atau terlalu besar."), 400
+    sid = hashlib.sha256(d.encode()).hexdigest()[:24]
+    if not db.get(Sticker, sid):
+        db.add(Sticker(id=sid, data=d))
+        db.commit()
+    return jsonify(id=sid)
+
+
+def purge_room(db, rid):
+    db.query(Message).filter(Message.to_id == "R-%d" % rid).delete(synchronize_session=False)
+    db.query(RoomMember).filter(RoomMember.room_id == rid).delete(synchronize_session=False)
+    db.query(Room).filter(Room.id == rid).delete(synchronize_session=False)
+
+
+def purge_user(db, pid):
+    for r in db.query(Room).filter_by(owner=pid).all():
+        purge_room(db, r.id)
+    for M, col in ID_COLS:
+        c = getattr(M, col)
+        db.query(M).filter(c == pid).delete(synchronize_session=False)
+    db.query(UserFlag).filter(UserFlag.player_id == pid).delete(synchronize_session=False)
+    # User sudah terhapus lewat ID_COLS (User.player_id)
+
+
+def target_user(db, u, pid, allow_self=False):
+    """Pengguna yang boleh dikenai tindakan owner (bukan akun resmi / owner / diri sendiri)."""
+    t = db.query(User).filter_by(player_id=pid).first()
+    if not t or t.player_id == OFFICIAL:
+        return None, (jsonify(error="Pengguna tidak ditemukan."), 404)
+    if not allow_self and (is_owner(t) or t.id == u.id):
+        return None, (jsonify(error="Akun owner tidak bisa dikenai tindakan ini."), 400)
+    return t, None
+
+
+def iso(dt):
+    return dt.isoformat() + "Z" if dt else None
+
+
+@app.get("/api/admin/stats")
+@owner_only
+def adm_stats(db, u):
+    now = datetime.utcnow()
+    day = now - timedelta(days=1)
+    real = User.player_id != OFFICIAL
+    return jsonify(
+        users=db.query(func.count(User.id)).filter(real).scalar() or 0,
+        new24=db.query(func.count(User.id)).filter(real, User.created_at > day).scalar() or 0,
+        online=db.query(func.count(ProfileExt.player_id)).filter(ProfileExt.last_seen > now - timedelta(seconds=90)).scalar() or 0,
+        msgs24=db.query(func.count(Message.id)).filter(Message.kind == "text", Message.created_at > day).scalar() or 0,
+        groups=db.query(func.count(Room.id)).filter(Room.kind == "group").scalar() or 0,
+        channels=db.query(func.count(Room.id)).filter(Room.kind == "channel").scalar() or 0,
+        banned=len(_cache["banned"]))
+
+
+@app.get("/api/admin/users")
+@owner_only
+def adm_users(db, u):
+    q = (request.args.get("q") or "").strip().replace("%", "").replace("_", "")[:40]
+    qs = db.query(User).filter(User.player_id != OFFICIAL)
+    if q:
+        qs = qs.filter(or_(User.full_name.ilike("%" + q + "%"), User.player_id.like(q + "%")))
+    rows = qs.order_by(User.id.desc()).limit(60).all()
+    ext = {e.player_id: e for e in db.query(ProfileExt).filter(ProfileExt.player_id.in_([x.player_id for x in rows]))}
+    now, out = datetime.utcnow(), []
+    for x in rows:
+        ls = ext[x.player_id].last_seen if x.player_id in ext else None
+        out.append({"player_id": x.player_id, "full_name": x.full_name, "created_at": iso(x.created_at), "last_seen": iso(ls),
+                    "online": bool(ls and (now - ls).total_seconds() < 90), "verified": is_verified(x),
+                    "owner": is_owner(x), "banned": x.player_id in _cache["banned"]})
+    return jsonify(users=out)
+
+
+def set_flag(db, pid, **kw):
+    f = db.get(UserFlag, pid) or UserFlag(player_id=pid, banned=False)
+    for k, v in kw.items():
+        setattr(f, k, v)
+    db.add(f)
+    db.commit()
+    _cache["t"] = 0.0  # muat ulang cache pada permintaan berikutnya
+
+
+@app.post("/api/admin/users/<pid>/verify")
+@owner_only
+def adm_verify(db, u, pid):
+    t, err = target_user(db, u, pid, allow_self=True)
+    if err:
+        return err
+    set_flag(db, t.player_id, verified=bool((request.get_json(silent=True) or {}).get("value")))
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/users/<pid>/block")
+@owner_only
+def adm_block(db, u, pid):
+    t, err = target_user(db, u, pid)
+    if err:
+        return err
+    set_flag(db, t.player_id, banned=bool((request.get_json(silent=True) or {}).get("value")))
+    return jsonify(ok=True)
+
+
+@app.delete("/api/admin/users/<pid>")
+@owner_only
+def adm_delete_user(db, u, pid):
+    t, err = target_user(db, u, pid)
+    if err:
+        return err
+    purge_user(db, t.player_id)
+    db.commit()
+    _cache["t"] = 0.0
+    return jsonify(ok=True)
+
+
+@app.get("/api/admin/rooms")
+@owner_only
+def adm_rooms(db, u):
+    rooms = db.query(Room).order_by(Room.id.desc()).limit(100).all()
+    cnt = {rid: n for rid, n in db.query(RoomMember.room_id, func.count(RoomMember.id)).group_by(RoomMember.room_id)}
+    names = {x.player_id: x.full_name for x in db.query(User).filter(User.player_id.in_([r.owner for r in rooms]))}
+    return jsonify(rooms=[{"id": r.id, "kind": r.kind, "name": r.name, "owner": names.get(r.owner, r.owner), "count": cnt.get(r.id, 0)} for r in rooms])
+
+
+@app.delete("/api/admin/rooms/<int:rid>")
+@owner_only
+def adm_delete_room(db, u, rid):
+    if not db.get(Room, rid):
+        return jsonify(error="Tidak ditemukan."), 404
+    purge_room(db, rid)
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/banner")
+@owner_only
+def adm_banner(db, u):
+    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()[:300]
+    s_ = db.get(AppSetting, "announce") or AppSetting(key="announce")
+    s_.value = text
+    db.add(s_)
+    db.commit()
+    _cache["announce"] = text
+    return jsonify(announce=text or ANNOUNCE)
+
+
+@app.post("/api/admin/announce")
+@owner_only
+def adm_announce(db, u):
+    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()[:500]
+    if not text:
+        return jsonify(error="Isi pengumuman kosong."), 400
+    pids = [p for (p,) in db.query(User.player_id).filter(User.player_id != OFFICIAL) if p not in _cache["banned"]]
+    db.add_all([Message(sender=OFFICIAL, to_id=p, kind="text", body=text) for p in pids])
+    db.commit()
+    return jsonify(sent=len(pids))
+
+
+@app.get("/api/stickers/<sid>")
+def sticker_get(sid):
+    if not re.fullmatch(r"[0-9a-f]{24}", sid):
+        return "", 404
+    with Session() as db:
+        st = db.get(Sticker, sid)
+        data = st.data if st else None
+    if not data:
+        return "", 404
+    head, b64 = data.split(",", 1)
+    r = Response(base64.b64decode(b64), mimetype=head[5:head.index(";")])
+    r.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return r
 
 
 @app.get("/api/history")
@@ -307,7 +556,7 @@ def presence(db, u):
         if d["show_seen"] and d["last_seen"]:
             out[pid] = {"online": (now - d["last_seen"]).total_seconds() < ONLINE_SEC,
                         "seen": d["last_seen"].isoformat() + "Z"}
-    return jsonify(presence=out)
+    return jsonify(presence=out, announce=_cache["announce"] or ANNOUNCE)
 
 
 @app.get("/api/chats")
