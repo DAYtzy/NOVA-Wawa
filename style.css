@@ -333,3 +333,29 @@ textarea:focus-visible{outline:3px solid var(--red);outline-offset:2px}
 .card2.col textarea,.card2.col input{width:100%}
 .dlg .btn.full{width:100%;text-align:center}
 #admin .sec{margin-top:1.4rem}
+
+/* foto & video di chat dan status */
+.bub.media{padding:.35rem}
+.mbox{display:grid}
+.mth{position:relative;display:block;padding:0;background:#000;border:3px solid var(--ink);cursor:pointer;line-height:0}
+.mth img{display:block;width:min(230px,58vw);max-height:320px;object-fit:cover}
+.mth .pl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;padding:.8rem;background:rgba(17,17,17,.7);border:3px solid #fff;border-radius:50%;fill:#fff;stroke:#fff;stroke-width:1}
+.mth .dur{position:absolute;left:6px;bottom:6px;background:rgba(17,17,17,.75);color:#fff;padding:0 .35rem;font-size:.7rem;line-height:1.5}
+.mprog{position:absolute;left:0;right:0;bottom:0;height:8px;background:rgba(255,255,255,.35)}
+.mprog i{display:block;height:100%;width:0;background:var(--y);transition:width .15s}
+.mph{padding:.8rem 1rem;color:var(--mut);font-size:.8rem}
+.mcap{margin:.3rem .2rem 0;line-height:1.35;word-break:break-word}
+.once{display:flex;align-items:center;gap:.6rem;background:#fff;border:3px dashed var(--ink);padding:.7rem .8rem;font:700 .8rem "JetBrains Mono",monospace;cursor:pointer;text-align:left}
+.once:disabled{opacity:.6;cursor:default}
+.once .ic{width:1.6rem;height:1.6rem;color:var(--red)}
+.mv{position:fixed;inset:0;z-index:35;background:#000;display:flex;flex-direction:column;color:#fff}
+.mv-bar{display:flex;align-items:center;gap:.7rem;padding:.6rem}
+.mv-bar b{flex:1;font-size:.9rem}
+.mv-body{flex:1;min-height:0;display:grid;place-items:center;align-content:center;gap:.6rem;padding:.4rem}
+.mv-body img,.mv-body video{max-width:100%;max-height:78dvh;object-fit:contain}
+.mv-cap{margin:0;padding:.5rem 1rem;max-width:min(520px,100%);text-align:center;background:rgba(17,17,17,.7)}
+.mc-prev{max-width:100%;max-height:48dvh;display:block;border:3px solid var(--ink);background:#000}
+.mc-hint{margin:0;font-size:.75rem;color:var(--mut)}
+#svbody video{max-width:100%;max-height:100%}
+#svbody .mv-cap{position:absolute;left:0;right:0;bottom:0;background:rgba(17,17,17,.75);color:#fff;font:700 1rem "JetBrains Mono",monospace}
+.sc .pl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;padding:.6rem;background:rgba(17,17,17,.6);border:3px solid #fff;border-radius:50%;fill:#fff;stroke:#fff;stroke-width:1;z-index:1}

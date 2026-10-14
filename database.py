@@ -130,3 +130,25 @@ class UserFlag(Base):  # centang biru manual dan status blokir, diatur owner
     player_id = Column(String(12), primary_key=True)
     verified = Column(Boolean, nullable=True)  # None = aturan bawaan, True = beri centang, False = cabut
     banned = Column(Boolean, default=False)
+
+
+class Media(Base):  # foto/video di chat & status. File di Cloudinary (provider "cld") atau, khusus foto kecil, di database ("db")
+    __tablename__ = "media"
+    id = Column(String(24), primary_key=True)
+    owner = Column(String(12), nullable=False, index=True)
+    kind = Column(String(5), nullable=False)       # image | video
+    provider = Column(String(3), nullable=False)   # cld | db
+    ref = Column(String(120), default="")          # public_id di Cloudinary
+    ext = Column(String(5), default="")
+    data = Column(Text, default="")                # isi foto (data URL) untuk provider db
+    w = Column(Integer, default=0)
+    h = Column(Integer, default=0)
+    dur = Column(Integer, default=0)
+    caption = Column(String(200), default="")
+    once = Column(Boolean, default=False)          # sekali lihat
+    to_id = Column(String(12), default="")         # penerima (untuk sekali lihat)
+    ready = Column(Boolean, default=False)
+    sent = Column(Boolean, default=False)
+    gone = Column(Boolean, default=False)
+    viewed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())

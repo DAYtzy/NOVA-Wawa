@@ -71,7 +71,10 @@ async function initDashboard() {
   };
   const STK = /^\[stk:([0-9a-f]{24})\]$/;
   const stkId = (b) => { const m = STK.exec(b || ""); return m && m[1]; };
-  const lastText = (b) => (stkId(b) ? "Stiker" : b);
+  const MED = /^\[med:(i|v)(o?):([0-9a-f]{24})\]$/;
+  const medOf = (b) => { const m = MED.exec(b || ""); return m && { kind: m[1] === "v" ? "video" : "image", once: !!m[2], id: m[3] }; };
+  const lastText = (b) => { const k = medOf(b); return k ? (k.kind === "video" ? "Video" : "Foto") + (k.once ? " 1x lihat" : "") : stkId(b) ? "Stiker" : b; };
+  const fmtDur = (n) => Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
   const sha24 = async (t) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].slice(0, 12).map((x) => x.toString(16).padStart(2, "0")).join("");
   /* Kotak dialog bergaya NOVA, pengganti prompt() bawaan browser. Hasil: objek isian, atau null kalau dibatalkan. */
   function dialog({ title, desc, fields = [], contacts = null, ok = "Simpan", actions = [] }) {
@@ -216,6 +219,7 @@ async function initDashboard() {
       const l = st.stories.filter((s) => s.owner === o), s = l[l.length - 1], b = mk("button", null, "sc");
       if (!s) b.classList.add("empty");
       else if (s.kind === "img") b.style.backgroundImage = 'url("' + s.body + '")';
+      else if (s.kind === "vid") { b.style.background = "#111"; b.append(ic("play", "pl")); const vm = medOf(s.body); if (vm) needMeta(vm.id, (mt) => { if (mt.thumb) b.style.background = 'url("' + mt.thumb + '") center/cover'; }); }
       else { b.style.background = "linear-gradient(160deg,hsl(" + hue(s.body) + ",85%,62%),hsl(" + ((hue(s.body) + 50) % 360) + ",80%,48%))"; b.append(mk("p", s.body, "sct")); }
       b.append(av(nameOf(o), imgOf(o)), mk("span", label, "scn"));
       b.onclick = onclick;
@@ -294,9 +298,10 @@ async function initDashboard() {
   function addMsg(m) {
     const mine = m.sender === me.player_id, key = isRoom(m.to) || mine ? m.to : m.sender;
     st.last[key] = m.body; st.lastT[key] = m.t;
-    const r = roomOf(st.cur || ""), sid = stkId(m.body), d = mk("div", null, "bub " + (mine ? "out" : "in") + (sid ? " sticker" : "")), box = mk("div"), mt = mk("div", null, "mt");
+    const r = roomOf(st.cur || ""), sid = stkId(m.body), md = medOf(m.body), d = mk("div", null, "bub " + (mine ? "out" : "in") + (sid ? " sticker" : "") + (md ? " media" : "")), box = mk("div"), mt = mk("div", null, "mt");
     if (!mine && r && r.kind === "group") box.append(mk("small", nameOf(m.sender), "who"));
     if (sid) { const im = mk("img", null, "smsg"); im.src = m.local || "/api/stickers/" + sid; im.alt = "Stiker"; box.append(im); }
+    else if (md) box.append(...mediaBox(m, md));
     else box.append(mk("span", m.body));
     mt.append(mk("time", tm(m.t)));
     if (mine) { d.dataset.to = m.to; d.dataset.t = m.t; mt.append(tick(m)); }
@@ -381,6 +386,13 @@ async function initDashboard() {
     t.replaceChildren(tabs, tg);
     if (trayTab === "stiker" && !mySt().length) t.append(mk("p", "Belum ada stiker. Tap Buat stiker untuk membuatnya dari fotomu.", "hint"));
   }
+  $("#attach").onclick = async () => {
+    if (!st.cur) return;
+    const f = await pickMedia();
+    if (!st.cur || !(await checkMedia(f, false))) return;
+    const to = st.cur, o = await mediaComposer(f, !isRoom(to), false);
+    if (o) sendMedia(to, o, false);
+  };
   $("#plus").onclick = () => { const t = $("#tray"); t.hidden = !t.hidden; if (!t.hidden) renderPanel(); };
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; let rec;
   $("#mic").onclick = () => {
@@ -436,7 +448,10 @@ async function initDashboard() {
     if (r) postStory("text", r.t);
   };
   const storyImg = async () => {
-    const photo = await pick(720, 0.85);
+    const f = await pickMedia();
+    if (!(await checkMedia(f, true))) return;
+    if (f.type.startsWith("video/")) { const o = await mediaComposer(f, false, true); if (o) sendMedia(null, o, true); return; }
+    let photo; try { photo = await resize(f, 720, 0.85); } catch { return toast("Foto tidak bisa dibaca."); }
     const out = await storyComposer(photo);
     if (out) postStory("img", out);
   };
@@ -556,6 +571,163 @@ async function initDashboard() {
     });
   }
 
+  /* ----- foto & video di chat dan status ----- */
+  const pickMedia = () => new Promise((res) => { const f = $("#mpick"); f.value = ""; f.onchange = () => f.files[0] && res(f.files[0]); f.click(); });
+  const mcache = {}, waiters = {}; let mq = new Set(), mt;
+  function needMeta(id, cb) {  // ambil info media (url, keterangan, status) sekaligus untuk banyak pesan
+    if (mcache[id]) return cb(mcache[id]);
+    (waiters[id] = waiters[id] || []).push(cb); mq.add(id);
+    clearTimeout(mt);
+    mt = setTimeout(async () => {
+      const ids = [...mq]; mq = new Set(); let r = {};
+      try { r = (await api("/media/meta", { method: "POST", body: JSON.stringify({ ids }) })).media; } catch {}
+      ids.forEach((i) => { mcache[i] = r[i] || { missing: true }; (waiters[i] || []).splice(0).forEach((f) => f(mcache[i])); });
+    }, 40);
+  }
+  function probeVideo(file) {  // ukuran, durasi, dan gambar pembuka video (kalau browser bisa membacanya)
+    if (file._p) return Promise.resolve(file._p);
+    return new Promise((res) => {
+      const v = document.createElement("video"), url = URL.createObjectURL(file), out = { w: 0, h: 0, dur: 0, poster: "", url };
+      const fin = () => { file._p = out; res(out); };
+      v.preload = "metadata"; v.muted = true; v.playsInline = true; v.src = url;
+      v.onloadedmetadata = () => {
+        out.w = v.videoWidth; out.h = v.videoHeight; out.dur = v.duration || 0;
+        v.onseeked = () => { try { const k = Math.min(1, 480 / Math.max(v.videoWidth, v.videoHeight)), c = document.createElement("canvas"); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k); c.getContext("2d").drawImage(v, 0, 0, c.width, c.height); out.poster = c.toDataURL("image/jpeg", 0.7); } catch {} fin(); };
+        v.currentTime = Math.min(0.2, out.dur / 2);
+      };
+      v.onerror = fin; setTimeout(fin, 6000);
+    });
+  }
+  async function checkMedia(file, story) {
+    const isV = file.type.startsWith("video/");
+    if (!isV && !file.type.startsWith("image/")) { toast("Pilih foto atau video."); return false; }
+    if (isV) {
+      if (!me.cld) { toast("Video butuh penyimpanan Cloudinary. Minta owner mengisinya di Vercel."); return false; }
+      if (file.size > 30 * 1048576) { toast("Video terlalu besar (maks 30 MB)."); return false; }
+      const p = await probeVideo(file), max = story ? 60 : 180;
+      if (p.dur > max) { toast("Video terlalu panjang (maks " + (story ? "60 detik" : "3 menit") + ")."); return false; }
+    }
+    return true;
+  }
+  async function shrinkImg(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const im = await loadImg(url), k = Math.min(1, 1280 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement("canvas");
+      c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k); c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      const dataUrl = exportJpg(c, 280000), fin = await loadImg(dataUrl);
+      return { dataUrl, blob: await (await fetch(dataUrl)).blob(), w: fin.naturalWidth, h: fin.naturalHeight };
+    } finally { URL.revokeObjectURL(url); }
+  }
+  function xhrUpload(up, file, onp) {  // unggah langsung ke Cloudinary dengan indikator kemajuan
+    return new Promise((res, rej) => {
+      const fd = new FormData(); Object.entries(up.fields).forEach(([k, v]) => fd.append(k, v)); fd.append("file", file);
+      const x = new XMLHttpRequest(); x.open("POST", up.url);
+      x.upload.onprogress = (e) => e.lengthComputable && onp(e.loaded / e.total);
+      x.onload = () => { let j = {}; try { j = JSON.parse(x.responseText); } catch {} x.status >= 200 && x.status < 300 ? res(j) : rej(new Error((j.error && j.error.message) || "Unggah gagal")); };
+      x.onerror = () => rej(new Error("Koneksi putus saat mengunggah")); x.send(fd);
+    });
+  }
+  function mediaBox(m, md) {
+    const wrap = mk("div", null, "mbox"), cap = mk("p", null, "mcap"); cap.hidden = true;
+    const draw = (meta) => {
+      wrap.replaceChildren(); cap.hidden = true;
+      if (!meta || meta.missing) { wrap.append(mk("div", (md.kind === "video" ? "Video" : "Foto") + " tidak tersedia", "mph")); return; }
+      if (meta.once) {
+        const what = meta.kind === "video" ? "Video" : "Foto", can = !meta.mine && meta.state === "new", b = mk("button", null, "once"); b.type = "button"; b.disabled = !can;
+        b.append(ic("once"), mk("span", what + " 1x lihat · " + (meta.mine ? (meta.pending ? "mengirim..." : meta.state === "new" ? "belum dibuka" : "sudah dibuka") : can ? "ketuk untuk membuka" : "sudah dibuka")));
+        b.onclick = () => openOnce(md.id, meta, draw); wrap.append(b); return;
+      }
+      if (!meta.url) { wrap.append(mk("div", "Media sudah dihapus", "mph")); return; }
+      const t = mk("button", null, "mth"), im = mk("img"); t.type = "button"; t.setAttribute("aria-label", meta.kind === "video" ? "Putar video" : "Buka foto");
+      im.src = meta.thumb || meta.url; im.alt = meta.kind === "video" ? "Video" : "Foto"; im.loading = "lazy"; t.append(im);
+      if (meta.kind === "video") { t.append(ic("play", "pl")); if (meta.dur) t.append(mk("small", fmtDur(meta.dur), "dur")); }
+      if (meta.pending) { const pr = mk("div", null, "mprog"); pr.append(mk("i")); t.append(pr); }
+      t.onclick = () => viewMedia(meta);
+      wrap.append(t); if (meta.caption) { cap.textContent = meta.caption; cap.hidden = false; }
+    };
+    if (m.local) draw(m.local); else { wrap.append(mk("div", "Memuat...", "mph")); needMeta(md.id, draw); }
+    return [wrap, cap];
+  }
+  function viewMedia(meta, opts = {}) {
+    const prev = document.activeElement, back = mk("div", null, "mv"), bar = mk("div", null, "mv-bar"), x = mk("button", null, "hb"), body = mk("div", null, "mv-body");
+    x.type = "button"; x.setAttribute("aria-label", "Tutup"); x.append(ic("x")); bar.append(x, mk("b", opts.title || ""));
+    let el;
+    if (meta.kind === "video") { el = mk("video"); el.src = meta.url; el.controls = true; el.autoplay = true; el.playsInline = true; el.setAttribute("playsinline", ""); }
+    else { el = mk("img"); el.src = meta.url; el.alt = "Foto"; }
+    body.append(el); if (meta.caption) body.append(mk("p", meta.caption, "mv-cap"));
+    back.append(bar, body); document.body.append(back);
+    const close = () => { document.removeEventListener("keydown", onKey, true); if (el.pause) el.pause(); back.remove(); if (prev && prev.focus) prev.focus(); if (opts.onClose) opts.onClose(); };
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+    document.addEventListener("keydown", onKey, true); x.onclick = close; x.focus();
+  }
+  async function openOnce(id, meta, redraw) {
+    const after = () => { mcache[id] = { ...meta, state: "opened" }; redraw(mcache[id]); };
+    try {
+      const r = await api("/media/" + id + "/open", { method: "POST" });
+      viewMedia({ kind: r.kind, url: r.url || r.data, caption: r.caption }, { title: "Sekali lihat", onClose: () => { api("/media/" + id + "/done", { method: "POST" }).catch(() => {}); after(); } });
+    } catch (e) { toast(e.message); if (/Sudah/.test(e.message)) after(); }
+  }
+  function mediaComposer(file, canOnce, story) {
+    return new Promise((resolve) => {
+      const prev = document.activeElement, isV = file.type.startsWith("video/"), url = URL.createObjectURL(file); let once = false;
+      const back = mk("div", null, "sc-back"), box = mk("div", null, "scmp");
+      box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-label", story ? "Status" : "Kirim media");
+      const bar = mk("div", null, "sc-bar"), no = mk("button", null, "hb"), go = mk("button", story ? "Posting" : "Kirim", "btn");
+      no.type = go.type = "button"; no.setAttribute("aria-label", "Batal"); no.append(ic("x"));
+      bar.append(no, mk("b", story ? "Status " + (isV ? "video" : "foto") : isV ? "Kirim video" : "Kirim foto"), go);
+      const wrap = mk("div", null, "sc-wrap"), pv = mk(isV ? "video" : "img", null, "mc-prev"); pv.src = url;
+      if (isV) { pv.controls = true; pv.muted = true; pv.playsInline = true; pv.setAttribute("playsinline", ""); } else pv.alt = "Pratinjau";
+      wrap.append(pv);
+      const ctl = mk("div", null, "mk-ctl"), cl = mk("label"), ci = mk("input"); ci.maxLength = 200; ci.placeholder = "Tambah keterangan..."; ci.autocomplete = "off";
+      cl.append(mk("span", "Keterangan (opsional)"), ci); ctl.append(cl);
+      if (canOnce) {
+        const ob = mk("button", "1x lihat: mati", "pill"), hint = mk("p", "Penerima hanya bisa membukanya sekali, lalu hilang.", "mc-hint"); ob.type = "button"; ob.setAttribute("aria-pressed", "false"); hint.hidden = true;
+        ob.onclick = () => { once = !once; ob.classList.toggle("on", once); ob.setAttribute("aria-pressed", String(once)); ob.textContent = "1x lihat: " + (once ? "nyala" : "mati"); hint.hidden = !once; };
+        ctl.append(ob, hint);
+      }
+      box.append(bar, wrap, ctl); back.append(box); document.body.append(back);
+      const done = (v) => { document.removeEventListener("keydown", onKey, true); URL.revokeObjectURL(url); back.remove(); if (prev && prev.focus) prev.focus(); resolve(v); };
+      const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); done(null); }
+        if (e.key === "Tab") {
+          const f = [...box.querySelectorAll("button:not([disabled]),input,video")], a = f[0], z = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+        }
+      };
+      document.addEventListener("keydown", onKey, true);
+      no.onclick = () => done(null); go.onclick = () => done({ file, caption: ci.value.trim(), once });
+      ci.focus();
+    });
+  }
+  async function sendMedia(to, { file, caption, once }, story) {
+    const isV = file.type.startsWith("video/"), tag = (isV ? "v" : "i") + (once ? "o" : "");
+    let el = null, w = 0, h = 0, dur = 0, blob = file, dataUrl = "", thumb = "", lurl = "";
+    const prog = (f) => { const i = el && el.querySelector(".mprog i"); if (i) i.style.width = Math.round(f * 100) + "%"; else if (story) toast("Mengunggah status " + Math.round(f * 100) + "%"); };
+    try {
+      if (isV) { const p = await probeVideo(file); w = p.w; h = p.h; dur = Math.round(p.dur || 0); thumb = p.poster; lurl = p.url; }
+      else { const r = await shrinkImg(file); blob = r.blob; dataUrl = r.dataUrl; w = r.w; h = r.h; thumb = lurl = r.dataUrl; }
+      if (!story) el = addMsg({ sender: me.player_id, to, kind: "text", body: "[med:" + tag + ":" + "0".repeat(24) + "]", t: new Date().toISOString(), pending: true,
+        local: { kind: isV ? "video" : "image", thumb, url: lurl, caption, once, mine: true, state: "new", pending: true, dur } });
+      else toast("Mengunggah status...");
+      const n = await api("/media/new", { method: "POST", body: JSON.stringify({ kind: isV ? "video" : "image", once, caption }) });
+      if (n.provider === "cld") {
+        const j = await xhrUpload(n.upload, blob, prog);
+        await api("/media/" + n.id + "/ready", { method: "POST", body: JSON.stringify({ ext: j.format, w: j.width || w, h: j.height || h, dur: Math.round(j.duration || dur) }) });
+      } else await api("/media/" + n.id + "/data", { method: "POST", body: JSON.stringify({ data: dataUrl, w, h }) });
+      const body = "[med:" + tag + ":" + n.id + "]";
+      if (story) { await api("/stories", { method: "POST", body: JSON.stringify({ kind: "vid", body }) }); await loadStories(); toast("Status diposting"); return; }
+      const m = await send(to, "text", body);
+      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t;
+      el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m));
+      const pr = el.querySelector(".mprog"); if (pr) pr.remove();
+      const oc = el.querySelector(".once span"); if (oc) oc.textContent = (isV ? "Video" : "Foto") + " 1x lihat · belum dibuka";
+      render();
+    } catch (err) {
+      if (el) { const t = el.querySelector(".tk"); if (t) t.replaceWith(ic("x", "tk fail")); const pr = el.querySelector(".mprog"); if (pr) pr.remove(); }
+      toast("Gagal mengirim: " + err.message);
+    }
+  }
+
   function storyComposer(photo) {
     return new Promise((resolve) => {
       const prev = document.activeElement, items = []; let sel = null, tab = "builtin";
@@ -666,7 +838,17 @@ async function initDashboard() {
     let i = 0;
     const draw = () => {
       const s = list[i], b = $("#svbody"); b.replaceChildren();
-      if (s.kind === "img") { const im = mk("img"); im.src = s.body; b.append(im); b.style.background = "#000"; }
+      if (s.kind === "vid") {
+        const vm = medOf(s.body); b.style.background = "#000"; b.append(mk("p", "Memuat...", "mph"));
+        if (vm) needMeta(vm.id, (meta) => {
+          if (list[i] !== s) return;
+          b.replaceChildren(); if (!meta.url) { b.append(mk("p", "Video tidak tersedia")); return; }
+          const v = mk("video"); v.src = meta.url; v.autoplay = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.onended = () => b.onclick(); b.append(v);
+          if (meta.caption) b.append(mk("p", meta.caption, "mv-cap"));
+          v.play().catch(() => { v.muted = true; v.play().catch(() => {}); });
+        });
+      }
+      else if (s.kind === "img") { const im = mk("img"); im.src = s.body; b.append(im); b.style.background = "#000"; }
       else { b.append(mk("p", s.body)); b.style.background = "hsl(" + hue(s.body) + ",85%,78%)"; }
       $("#svwho").textContent = nameOf(p) + " · " + fmt(s.t) + " (" + (i + 1) + "/" + list.length + ")";
     };

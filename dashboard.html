@@ -35,6 +35,9 @@
 <symbol id="i-fp" viewBox="0 0 24 24"><path d="M12 3a8 8 0 0 0-8 8v2M12 3a8 8 0 0 1 8 8v1c0 3-.5 5-1.5 8M12 7a4 4 0 0 0-4 4c0 3 0 5-1 8M12 7a4 4 0 0 1 4 4c0 3-.5 6-2 9M12 11c0 4 0 6-1.5 9"/></symbol>
 <symbol id="i-in" viewBox="0 0 24 24"><path d="M18 6L6 18M8 7v10h10"/></symbol>
 <symbol id="i-out" viewBox="0 0 24 24"><path d="M6 18L18 6M8 6h10v10"/></symbol>
+<symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+<symbol id="i-once" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3 2.6"/><path d="M10.5 9.5L13 8v8"/></symbol>
 <symbol id="i-seal" viewBox="0 0 24 24"><path d="M12 2l2.4 2 3.1-.3 1 3 2.7 1.6-1 3 1 3-2.7 1.6-1 3-3.1-.3L12 22l-2.4-2-3.1.3-1-3L2.8 15.7l1-3-1-3L6.5 8l1-3 3.1.3z" fill="#2F80FF" stroke="none"/><path d="M8 12.3l3 3 5-6" fill="none" stroke="#fff" stroke-width="2.6"/></symbol>
 <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
@@ -128,6 +131,7 @@
   <div id="tray" class="tray" hidden></div>
   <form id="form" class="composer">
     <button type="button" id="plus" class="cb" aria-label="Emoji" title="Emoji"><svg class="ic"><use href="#i-plus"/></svg></button>
+    <button type="button" id="attach" class="cb" aria-label="Kirim foto atau video" title="Kirim foto atau video"><svg class="ic"><use href="#i-clip"/></svg></button>
     <input id="text" placeholder="Ketik pesan..." autocomplete="off" aria-label="Pesan">
     <button type="button" id="mic" class="cb" aria-label="Dikte suara" title="Dikte suara"><svg class="ic"><use href="#i-mic"/></svg></button>
     <button type="submit" id="sendb" class="cb go" aria-label="Kirim" hidden><svg class="ic"><use href="#i-send"/></svg></button>
@@ -142,6 +146,7 @@
   <button data-s="profile"><svg class="ic"><use href="#i-user"/></svg><span>Profil</span></button>
 </nav>
 <input id="pick" type="file" accept="image/*" hidden>
+<input id="mpick" type="file" accept="image/*,video/*" hidden>
 <div id="sv" class="sv" hidden><div class="svbar"><span id="svwho"></span><button id="svclose"><svg class="ic"><use href="#i-x"/></svg>Tutup</button></div><div id="svbody"></div></div>
 <div id="lock" class="lock" hidden>
   <div class="fp"><svg class="ic"><use href="#i-fp"/></svg></div><h2>Aplikasi terkunci</h2>

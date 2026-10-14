@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Story, Room, RoomMember, Call, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Story, Room, RoomMember, Call, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -19,6 +19,9 @@ STK_RE = re.compile(r"^\[stk:([0-9a-f]{24})\]$")
 STK_DATA = re.compile(r"^data:image/(png|webp);base64,[A-Za-z0-9+/=]+$")
 OFFICIAL = "NOVA"  # akun resmi pengirim pengumuman (tidak bisa login)
 OWNER_IDS = {x.strip().upper() for x in os.getenv("OWNER_IDS", "").split(",") if x.strip()}  # kosong = akun pertama yang mendaftar
+MED_RE = re.compile(r"^\[med:(i|v)(o?):([0-9a-f]{24})\]$")
+IMG_DATA = re.compile(r"^data:image/jpeg;base64,[A-Za-z0-9+/=]+$")
+EXT_OK = {"mp4", "mov", "webm", "m4v", "3gp", "mkv", "jpg", "jpeg", "png", "webp"}
 ONLINE_SEC = 25
 VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") if x.strip()}  # ID yang dapat centang biru
 ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
@@ -34,7 +37,7 @@ def new_pid(db):
 
 ID_COLS = [(User, "player_id"), (Contact, "owner"), (Contact, "contact_pid"), (Message, "sender"), (Message, "to_id"),
            (Profile, "player_id"), (ProfileExt, "player_id"), (Story, "owner"), (Room, "owner"),
-           (RoomMember, "player_id"), (Call, "caller"), (Call, "callee")]
+           (RoomMember, "player_id"), (Call, "caller"), (Call, "callee"), (Media, "owner")]
 
 
 def migrate_ids():
@@ -145,7 +148,7 @@ def pub(u, pr, mine=False):
     o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u)}
     if mine:
         o.update(avatar=d["avatar"], status=d["status"], cover=d["cover"], public=d["public"],
-                 show_seen=d["show_seen"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL)
+                 show_seen=d["show_seen"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL, cld=bool(cld_conf()))
     elif d["public"]:  # profil privat: foto & status disembunyikan dari orang lain
         o.update(avatar=d["avatar"], status=d["status"])
     else:
@@ -259,6 +262,15 @@ def send(db, u):
             mm = STK_RE.match(body)
             if not mm or not db.get(Sticker, mm.group(1)):
                 return jsonify(error="Stiker tidak ditemukan."), 400
+    med = None
+    if kind == "text" and body.startswith("[med:"):
+        mm = MED_RE.match(body)
+        med = mm and db.get(Media, mm.group(3))
+        if not med or med.owner != u.player_id or not med.ready or med.sent or med.gone \
+                or (mm.group(1) == "v") != (med.kind == "video") or bool(mm.group(2)) != bool(med.once):
+            return jsonify(error="Foto/video tidak valid."), 400
+        if med.once and to.startswith("R-"):
+            return jsonify(error="Sekali lihat hanya untuk chat pribadi."), 400
     if kind == "text" and to == OFFICIAL:
         return jsonify(error="Akun resmi hanya mengirim pengumuman."), 400
     if kind == "text" and to.startswith("R-") and to[2:].isdigit():
@@ -271,10 +283,182 @@ def send(db, u):
         return jsonify(error="Pesan tidak valid."), 400
     if kind == "sig":
         log_call(db, u.player_id, to, body)
+    if med:
+        med.sent = True
+        med.to_id = to
     m = Message(sender=u.player_id, to_id=to, kind=kind, body=body)
     db.add(m)
     db.commit()
     return jsonify(m.public())
+
+
+def cld_conf():
+    """(cloud_name, api_key, api_secret) dari env, atau None kalau Cloudinary belum diisi."""
+    name, key, sec = (os.getenv(k, "").strip() for k in ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"))
+    url = os.getenv("CLOUDINARY_URL", "").strip()
+    if url and not (name and key and sec):
+        mm = re.match(r"^cloudinary://([^:]+):([^@]+)@(.+)$", url)
+        if mm:
+            key, sec, name = mm.groups()
+    return (name, key, sec) if name and key and sec else None
+
+
+def cld_sign(params, secret):
+    return hashlib.sha1(("&".join("%s=%s" % (k, params[k]) for k in sorted(params)) + secret).encode()).hexdigest()
+
+
+def cld_destroy(m):
+    cfg = cld_conf()
+    if m.provider != "cld" or not cfg:
+        return
+    try:
+        import urllib.parse, urllib.request
+        params = {"invalidate": "true", "public_id": m.ref, "timestamp": str(int(time.time()))}
+        data = urllib.parse.urlencode({**params, "api_key": cfg[1], "signature": cld_sign(params, cfg[2])}).encode()
+        urllib.request.urlopen("https://api.cloudinary.com/v1_1/%s/%s/destroy" % (cfg[0], "video" if m.kind == "video" else "image"), data=data, timeout=6).read()
+    except Exception as e:
+        print("hapus media gagal:", e)
+
+
+def media_urls(m, cfg):
+    """(url, thumb). Alamat dibuat di server dari public_id, bukan dari kiriman klien."""
+    if m.provider == "db":
+        u = "/api/media/%s/file" % m.id
+        return u, u
+    base = "https://res.cloudinary.com/%s/%s/upload" % (cfg[0] if cfg else "", "video" if m.kind == "video" else "image")
+    if m.kind == "image":
+        u = "%s/%s.%s" % (base, m.ref, m.ext or "jpg")
+        return u, u
+    native = m.ext in ("mp4", "webm")
+    url = "%s/%s%s.%s" % (base, "" if native else "f_mp4,vc_h264/", m.ref, m.ext if native else "mp4")
+    return url, "%s/so_0,w_480,c_limit,f_jpg/%s.jpg" % (base, m.ref)
+
+
+def n0(x):
+    try:
+        return max(0, min(int(float(x)), 100000))
+    except (TypeError, ValueError):
+        return 0
+
+
+def sweep_once(db):
+    """Foto/video sekali lihat yang sudah dibuka lebih dari 10 menit lalu dihapus dari penyimpanan."""
+    cut = datetime.utcnow() - timedelta(minutes=10)
+    for m in db.query(Media).filter(Media.once.is_(True), Media.gone.is_(False), Media.viewed_at.isnot(None), Media.viewed_at < cut).limit(5).all():
+        cld_destroy(m)
+        m.data, m.gone = "", True
+    db.commit()
+
+
+@app.post("/api/media/new")
+@authed
+def media_new(db, u):
+    d = request.get_json(silent=True) or {}
+    kind, cfg = ("video" if d.get("kind") == "video" else "image"), cld_conf()
+    if kind == "video" and not cfg:
+        return jsonify(error="Video butuh penyimpanan Cloudinary. Minta owner mengisi kuncinya di Vercel."), 400
+    mid = secrets.token_hex(12)
+    m = Media(id=mid, owner=u.player_id, kind=kind, provider="cld" if cfg else "db", ref=("nova/" + mid) if cfg else "",
+              caption=(d.get("caption") or "").strip()[:200], once=bool(d.get("once")))
+    db.add(m)
+    db.commit()
+    out = {"id": mid, "provider": m.provider}
+    if cfg:
+        params = {"public_id": m.ref, "timestamp": str(int(time.time()))}
+        out["upload"] = {"url": "https://api.cloudinary.com/v1_1/%s/%s/upload" % (cfg[0], kind),
+                         "fields": {**params, "api_key": cfg[1], "signature": cld_sign(params, cfg[2])}}
+    return jsonify(out)
+
+
+@app.post("/api/media/<mid>/ready")
+@authed
+def media_ready(db, u, mid):
+    m = db.get(Media, mid)
+    if not m or m.owner != u.player_id or m.provider != "cld" or m.ready:
+        return jsonify(error="Media tidak ditemukan."), 404
+    d = request.get_json(silent=True) or {}
+    ext = str(d.get("ext") or "").lower()
+    m.ext = ext if ext in EXT_OK else ("mp4" if m.kind == "video" else "jpg")
+    m.w, m.h, m.dur, m.ready = n0(d.get("w")), n0(d.get("h")), n0(d.get("dur")), True
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/media/<mid>/data")
+@authed
+def media_data(db, u, mid):
+    m = db.get(Media, mid)
+    d = request.get_json(silent=True) or {}
+    data = d.get("data") or ""
+    if not m or m.owner != u.player_id or m.provider != "db" or m.kind != "image" or m.ready:
+        return jsonify(error="Media tidak ditemukan."), 404
+    if len(data) > 300000 or not IMG_DATA.match(data):
+        return jsonify(error="Foto terlalu besar."), 400
+    m.data, m.w, m.h, m.ready = data, n0(d.get("w")), n0(d.get("h")), True
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.get("/api/media/<mid>/file")
+def media_file(mid):
+    if not re.fullmatch(r"[0-9a-f]{24}", mid):
+        return "", 404
+    with Session() as db:
+        m = db.get(Media, mid)
+        data = m.data if m and m.provider == "db" and not m.once and not m.gone else ""
+    if not data:
+        return "", 404
+    r = Response(base64.b64decode(data.split(",", 1)[1]), mimetype="image/jpeg")
+    r.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return r
+
+
+@app.post("/api/media/meta")
+@authed
+def media_meta(db, u):
+    raw = (request.get_json(silent=True) or {}).get("ids") or []
+    ids = [i for i in raw[:40] if isinstance(i, str) and re.fullmatch(r"[0-9a-f]{24}", i)]
+    sweep_once(db)
+    cfg, out = cld_conf(), {}
+    for m in db.query(Media).filter(Media.id.in_(ids)):
+        if not m.ready:
+            continue
+        o = {"kind": m.kind, "once": bool(m.once), "caption": m.caption or "", "w": m.w, "h": m.h, "dur": m.dur, "mine": m.owner == u.player_id}
+        if m.once:
+            o["state"] = "gone" if m.gone else ("opened" if m.viewed_at else "new")
+        elif not m.gone:
+            o["url"], o["thumb"] = media_urls(m, cfg)
+        out[m.id] = o
+    return jsonify(media=out)
+
+
+@app.post("/api/media/<mid>/open")
+@authed
+def media_open(db, u, mid):
+    m = db.get(Media, mid)
+    if not m or not m.once or not m.ready:
+        return jsonify(error="Media tidak ditemukan."), 404
+    if m.owner == u.player_id or m.to_id != u.player_id:
+        return jsonify(error="Tidak bisa dibuka."), 403
+    # pembaruan bersyarat: hanya satu permintaan yang berhasil menandai "sudah dibuka"
+    n = db.query(Media).filter(Media.id == mid, Media.viewed_at.is_(None), Media.gone.is_(False)).update({"viewed_at": datetime.utcnow()}, synchronize_session=False)
+    db.commit()
+    if not n:
+        return jsonify(error="Sudah dibuka dan tidak bisa dilihat lagi."), 410
+    if m.provider == "db":
+        return jsonify(kind=m.kind, data=m.data, caption=m.caption or "")
+    return jsonify(kind=m.kind, url=media_urls(m, cld_conf())[0], caption=m.caption or "")
+
+
+@app.post("/api/media/<mid>/done")
+@authed
+def media_done(db, u, mid):
+    m = db.get(Media, mid)
+    if m and m.once and m.to_id == u.player_id and m.viewed_at and not m.gone:
+        cld_destroy(m)
+        m.data, m.gone = "", True
+        db.commit()
+    return jsonify(ok=True)
 
 
 @app.post("/api/stickers")
@@ -592,10 +776,16 @@ def stories_get(db, u):
 @authed
 def stories_post(db, u):
     d = request.get_json(silent=True) or {}
-    kind, body = ("img" if d.get("kind") == "img" else "text"), d.get("body") or ""
+    kind, body = (d.get("kind") if d.get("kind") in ("img", "vid") else "text"), d.get("body") or ""
     if not body or (kind == "text" and len(body) > 300) or \
             (kind == "img" and (not body.startswith("data:image/") or len(body) > 200000)):
         return jsonify(error="Story tidak valid atau terlalu besar."), 400
+    if kind == "vid":
+        mm = MED_RE.match(body)
+        med = mm and db.get(Media, mm.group(3))
+        if not med or med.owner != u.player_id or not med.ready or med.sent or med.kind != "video" or med.once:
+            return jsonify(error="Video tidak valid."), 400
+        med.sent = True
     db.add(Story(owner=u.player_id, kind=kind, body=body))
     db.commit()
     return jsonify(ok=True), 201
