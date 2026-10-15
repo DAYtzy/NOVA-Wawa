@@ -359,3 +359,9 @@ textarea:focus-visible{outline:3px solid var(--red);outline-offset:2px}
 #svbody video{max-width:100%;max-height:100%}
 #svbody .mv-cap{position:absolute;left:0;right:0;bottom:0;background:rgba(17,17,17,.75);color:#fff;font:700 1rem "JetBrains Mono",monospace}
 .sc .pl{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;padding:.6rem;background:rgba(17,17,17,.6);border:3px solid #fff;border-radius:50%;fill:#fff;stroke:#fff;stroke-width:1;z-index:1}
+
+/* status keamanan (panel owner) */
+.sitem{background:#fff;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);padding:.5rem .8rem;display:grid;gap:.1rem}
+.sitem.ok{border-left:12px solid var(--grn)}
+.sitem.bad{border-left:12px solid var(--red)}
+.sitem small{color:var(--mut);font-size:.75rem}

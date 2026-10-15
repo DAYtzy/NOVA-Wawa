@@ -2,6 +2,7 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, func
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import NullPool
+from security import dec  # isi pesan dienkripsi di database kalau DATA_KEY diisi
 
 url = os.getenv("DATABASE_URL", "sqlite:///nova.db")
 if url.startswith("postgres://"):
@@ -51,7 +52,7 @@ class Message(Base):  # kind: 'text' = pesan, 'sig' = signaling panggilan WebRTC
 
     def public(self):
         return {"id": self.id, "sender": self.sender, "to": self.to_id, "kind": self.kind,
-                "body": self.body, "t": self.created_at.isoformat() + "Z"}
+                "body": dec(self.body), "t": self.created_at.isoformat() + "Z"}
 
 
 def init_db():
@@ -152,3 +153,22 @@ class Media(Base):  # foto/video di chat & status. File di Cloudinary (provider 
     gone = Column(Boolean, default=False)
     viewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class Block(Base):  # pengguna memblokir pengguna lain
+    __tablename__ = "blocks"
+    owner = Column(String(12), primary_key=True)
+    target = Column(String(12), primary_key=True)
+
+
+class RateHit(Base):  # catatan percobaan (login gagal, daftar) untuk membatasi serangan tebak-tebakan
+    __tablename__ = "rate_hits"
+    id = Column(Integer, primary_key=True)
+    key = Column(String(120), nullable=False, index=True)
+    ts = Column(DateTime, nullable=False, index=True)
+
+
+class PwChange(Base):  # akun yang pernah ganti password: sesi lama (token lama) tidak berlaku lagi
+    __tablename__ = "pw_changes"
+    player_id = Column(String(12), primary_key=True)
+    at = Column(DateTime)

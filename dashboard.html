@@ -38,6 +38,7 @@
 <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11l-8.5 8.5a5 5 0 0 1-7-7L13 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L14 7"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
 <symbol id="i-once" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3 2.6"/><path d="M10.5 9.5L13 8v8"/></symbol>
+<symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></symbol>
 <symbol id="i-seal" viewBox="0 0 24 24"><path d="M12 2l2.4 2 3.1-.3 1 3 2.7 1.6-1 3 1 3-2.7 1.6-1 3-3.1-.3L12 22l-2.4-2-3.1.3-1-3L2.8 15.7l1-3-1-3L6.5 8l1-3 3.1.3z" fill="#2F80FF" stroke="none"/><path d="M8 12.3l3 3 5-6" fill="none" stroke="#fff" stroke-width="2.6"/></symbol>
 <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
@@ -101,10 +102,14 @@
     <button id="pdel" class="card2 setr"><svg class="ic lead"><use href="#i-trash"/></svg><span><b>Hapus foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="copy" class="card2 setr"><svg class="ic lead"><use href="#i-copy"/></svg><span><b>Salin ID</b><small id="copysub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="lockbtn" class="card2 setr"><svg class="ic lead"><use href="#i-fp"/></svg><span><b>Kunci aplikasi</b><small></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="pwbtn" class="card2 setr"><svg class="ic lead"><use href="#i-lock"/></svg><span><b>Ubah password</b><small>Ganti password-mu kapan saja</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="blkbtn" class="card2 setr"><svg class="ic lead"><use href="#i-x"/></svg><span><b>Pengguna diblokir</b><small>Lihat dan buka blokir</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="logout" class="card2 setr out"><svg class="ic lead"><use href="#i-logout"/></svg><span><b>Logout</b></span></button>
   </section>
   <section id="admin" hidden>
     <p class="hint l">Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server.</p>
+    <h2 class="sec">Keamanan</h2>
+    <ul id="asec" class="list"></ul>
     <h2 class="sec">Statistik</h2>
     <div id="astats" class="astats"></div>
     <h2 class="sec">Banner pengumuman</h2>
@@ -124,6 +129,7 @@
     <div id="rav"></div>
     <div class="rt"><b id="rtitle"></b><small id="rid"></small></div>
     <button id="savebtn" aria-label="Simpan ID" title="Simpan ID"><svg class="ic"><use href="#i-userplus"/></svg></button>
+    <button id="morebtn" aria-label="Menu chat" title="Menu chat"><svg class="ic"><use href="#i-more"/></svg></button>
     <button id="vbtn" aria-label="Video call" title="Video call"><svg class="ic"><use href="#i-video"/></svg></button>
     <button id="abtn" aria-label="Telpon" title="Telpon"><svg class="ic"><use href="#i-phone"/></svg></button>
   </div>

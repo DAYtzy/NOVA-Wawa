@@ -8,11 +8,26 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Story, Room, RoomMember, Call, init_db
+from security import apply_headers, Limiter, pw_problem, enc, dec, crypto_status, safe_data_url
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, Story, Room, RoomMember, Call, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
-ser = URLSafeTimedSerializer(os.getenv("SECRET_KEY", "dev-secret-change-me"))
+
+
+@app.before_request
+def guard_secret():
+    if ON_VERCEL and not SECRET_OK and request.path.startswith("/api/"):
+        return jsonify(error="Server belum aman: SECRET_KEY belum diisi di Vercel (minimal 16 karakter).", config=True), 503
+
+
+@app.after_request
+def sec_headers(r):
+    return apply_headers(r, request.path)
+SECRET = os.getenv("SECRET_KEY", "").strip()
+SECRET_OK = len(SECRET) >= 16
+ON_VERCEL = bool(os.getenv("VERCEL"))
+ser = URLSafeTimedSerializer(SECRET if SECRET_OK else "dev-secret-change-me")  # kunci cadangan HANYA untuk komputer lokal
 init_db()
 
 STK_RE = re.compile(r"^\[stk:([0-9a-f]{24})\]$")
@@ -57,7 +72,7 @@ def migrate_ids():
 migrate_ids()
 
 
-_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": ""}
+_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set()}
 
 
 def flags(db):
@@ -68,7 +83,7 @@ def flags(db):
             a = db.get(AppSetting, "announce")
             _cache.update(t=time.time(), banned={r.player_id for r in rows if r.banned},
                           vfy={r.player_id: r.verified for r in rows if r.verified is not None},
-                          announce=(a.value if a and a.value else ""))
+                          announce=(a.value if a and a.value else ""), pwchg={r.player_id for r in db.query(PwChange)})
             if _cache["first"] is None:
                 _cache["first"] = db.query(func.min(User.id)).filter(User.player_id != OFFICIAL).scalar()
         except Exception as e:
@@ -90,14 +105,51 @@ def is_verified(u):
     return u.player_id == OFFICIAL or is_owner(u) or u.id == _cache["first"] or u.player_id in VERIFIED
 
 
+RL = Limiter()
+
+
+def client_ip():
+    return (request.headers.get("x-real-ip") or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or request.remote_addr or "?")[:45]
+
+
+def too_many(db, key, limit, secs):
+    since = datetime.utcnow() - timedelta(seconds=secs)
+    return (db.query(func.count(RateHit.id)).filter(RateHit.key == key, RateHit.ts > since).scalar() or 0) >= limit
+
+
+def note_hit(db, key):
+    db.add(RateHit(key=key[:120], ts=datetime.utcnow()))
+    db.commit()
+    if secrets.randbelow(40) == 0:  # sesekali buang catatan lama
+        db.query(RateHit).filter(RateHit.ts < datetime.utcnow() - timedelta(days=1)).delete(synchronize_session=False)
+        db.commit()
+
+
+def tokver(u):
+    return hashlib.sha256(u.password_hash.encode()).hexdigest()[:10]
+
+
+def make_token(u):
+    return ser.dumps([u.id, tokver(u)])  # berubah kalau password diganti, jadi sesi lama otomatis tidak berlaku
+
+
+def load_user(db):
+    try:
+        v = ser.loads(request.headers.get("Authorization", "")[7:], max_age=7 * 86400)
+        if isinstance(v, list) and len(v) == 2:
+            u = db.get(User, v[0])
+            return u if u and tokver(u) == v[1] else None
+        u = db.get(User, v)  # token lama (hanya id): sah selama password belum pernah diganti lewat fitur baru
+        return None if u and u.player_id in flags(db)["pwchg"] else u
+    except (BadSignature, SignatureExpired, TypeError, ValueError):
+        return None
+
+
 def authed(f):
     @wraps(f)
     def w(*a, **k):
         with Session() as db:
-            try:
-                u = db.get(User, ser.loads(request.headers.get("Authorization", "")[7:], max_age=7 * 86400))
-            except (BadSignature, SignatureExpired):
-                u = None
+            u = load_user(db)
             if not u:
                 return jsonify(error="Unauthorized"), 401
             if u.player_id in flags(db)["banned"]:
@@ -146,6 +198,8 @@ def prof(db, ids):
 def pub(u, pr, mine=False):
     d = pr.get(u.player_id, EMPTY)
     o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u)}
+    if not mine:
+        o.pop("birth_year", None)  # tahun lahir hanya terlihat oleh pemilik akun
     if mine:
         o.update(avatar=d["avatar"], status=d["status"], cover=d["cover"], public=d["public"],
                  show_seen=d["show_seen"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL, cld=bool(cld_conf()))
@@ -189,10 +243,17 @@ def register():
         year = int(d.get("birth_year"))
     except (TypeError, ValueError):
         year = 0
-    if not name or "@" not in email or len(pw) < 6 or not 1900 <= year <= time.gmtime().tm_year:
-        return jsonify(error="Data tidak valid. Password minimal 6 karakter."), 400
+    if not name or "@" not in email or len(email) > 120 or len(name) > 60 or not 1900 <= year <= time.gmtime().tm_year:
+        return jsonify(error="Data tidak valid."), 400
+    bad = pw_problem(pw, name, email)
+    if bad:
+        return jsonify(error=bad), 400
     hashed = bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+    ip = client_ip()
     with Session() as db:
+        if too_many(db, "R:" + ip, 6, 3600):
+            return jsonify(error="Terlalu banyak pendaftaran dari jaringan ini. Coba lagi nanti."), 429
+        note_hit(db, "R:" + ip)
         if db.query(User.id).filter_by(email=email).first():
             return jsonify(error="Email sudah terdaftar."), 409
         for _ in range(5):
@@ -200,7 +261,7 @@ def register():
             db.add(u)
             try:
                 db.commit()
-                return jsonify(token=ser.dumps(u.id), user=u.public()), 201
+                return jsonify(token=make_token(u), user=u.public()), 201
             except IntegrityError:
                 db.rollback()
         return jsonify(error="Gagal membuat akun, coba lagi."), 500
@@ -209,15 +270,52 @@ def register():
 @app.post("/api/login")
 def login():
     d = request.get_json(silent=True) or {}
+    email, pw, ip = (d.get("email") or "").strip().lower()[:120], d.get("password") or "", client_ip()
     with Session() as db:
-        u = db.query(User).filter_by(email=(d.get("email") or "").strip().lower()).first()
-        if not u or u.player_id == OFFICIAL or not bcrypt.checkpw((d.get("password") or "").encode(), u.password_hash.encode()):
-            return jsonify(error="Email atau password salah."), 401
-        if u.player_id == OFFICIAL:
+        if too_many(db, "L:ip:" + ip, 40, 900) or too_many(db, "L:em:" + email, 8, 900):
+            return jsonify(error="Terlalu banyak percobaan masuk. Tunggu sekitar 15 menit lalu coba lagi."), 429
+        u = db.query(User).filter_by(email=email).first()
+        ok = False
+        if u and u.player_id != OFFICIAL:
+            try:
+                ok = bcrypt.checkpw(pw.encode()[:72], u.password_hash.encode())
+            except ValueError:
+                ok = False
+        if not ok:
+            note_hit(db, "L:ip:" + ip)
+            note_hit(db, "L:em:" + email)
             return jsonify(error="Email atau password salah."), 401
         if u.player_id in flags(db)["banned"]:
             return jsonify(error="Akunmu diblokir oleh admin.", banned=True), 403
-        return jsonify(token=ser.dumps(u.id), user=u.public())
+        return jsonify(token=make_token(u), user=u.public(), weak=len(pw) < 8)
+
+
+@app.post("/api/password")
+@authed
+def change_password(db, u):
+    d = request.get_json(silent=True) or {}
+    old, new = d.get("old") or "", d.get("new") or ""
+    if too_many(db, "P:" + u.player_id, 6, 3600):
+        return jsonify(error="Terlalu banyak percobaan. Coba lagi nanti."), 429
+    try:
+        ok = bcrypt.checkpw(old.encode()[:72], u.password_hash.encode())
+    except ValueError:
+        ok = False
+    if not ok:
+        note_hit(db, "P:" + u.player_id)
+        return jsonify(error="Password lama salah."), 400
+    bad = pw_problem(new, u.full_name, u.email)
+    if bad:
+        return jsonify(error=bad), 400
+    if new == old:
+        return jsonify(error="Password baru harus berbeda dari yang lama."), 400
+    u.password_hash = bcrypt.hashpw(new.encode(), bcrypt.gensalt()).decode()
+    ch = db.get(PwChange, u.player_id) or PwChange(player_id=u.player_id)
+    ch.at = datetime.utcnow()
+    db.add(ch)
+    db.commit()
+    _cache["t"] = 0.0
+    return jsonify(ok=True, token=make_token(u))
 
 
 @app.get("/api/me")
@@ -238,6 +336,8 @@ def contacts(db, u):
 @app.post("/api/contacts")
 @authed
 def add_contact(db, u):
+    if not RL.hit("add:" + u.player_id, 30, 600):
+        return jsonify(error="Terlalu banyak pencarian ID. Tunggu sebentar."), 429
     pid = ((request.get_json(silent=True) or {}).get("player_id") or "").strip().upper()
     t = db.query(User).filter_by(player_id=pid).first()
     if not t:
@@ -247,7 +347,7 @@ def add_contact(db, u):
     if not db.query(Contact.id).filter_by(owner=u.player_id, contact_pid=pid).first():
         db.add(Contact(owner=u.player_id, contact_pid=pid))
         db.commit()
-    return jsonify(contact=t.public())
+    return jsonify(contact=pub(t, prof(db, [t.player_id])))
 
 
 @app.post("/api/send")
@@ -255,6 +355,8 @@ def add_contact(db, u):
 def send(db, u):
     d = request.get_json(silent=True) or {}
     kind = "sig" if d.get("kind") == "sig" else "text"
+    if not RL.hit("send:" + u.player_id, 400 if kind == "sig" else 60, 60):
+        return jsonify(error="Terlalu cepat. Pelan-pelan ya."), 429
     body, to = (d.get("body") or "")[:20000 if kind == "sig" else 4000], d.get("to") or ""
     if kind == "text":
         body = body.strip()
@@ -286,7 +388,7 @@ def send(db, u):
     if med:
         med.sent = True
         med.to_id = to
-    m = Message(sender=u.player_id, to_id=to, kind=kind, body=body)
+    m = Message(sender=u.player_id, to_id=to, kind=kind, body=enc(body) if kind == "text" else body)
     db.add(m)
     db.commit()
     return jsonify(m.public())
@@ -323,7 +425,7 @@ def cld_destroy(m):
 def media_urls(m, cfg):
     """(url, thumb). Alamat dibuat di server dari public_id, bukan dari kiriman klien."""
     if m.provider == "db":
-        u = "/api/media/%s/file" % m.id
+        u = "/api/media/%s/file?s=%s" % (m.id, ser.dumps(m.id, salt="media"))  # berlaku 6 jam
         return u, u
     base = "https://res.cloudinary.com/%s/%s/upload" % (cfg[0] if cfg else "", "video" if m.kind == "video" else "image")
     if m.kind == "image":
@@ -353,6 +455,8 @@ def sweep_once(db):
 @app.post("/api/media/new")
 @authed
 def media_new(db, u):
+    if not RL.hit("med:" + u.player_id, 20, 600):
+        return jsonify(error="Terlalu banyak unggahan. Tunggu sebentar."), 429
     d = request.get_json(silent=True) or {}
     kind, cfg = ("video" if d.get("kind") == "video" else "image"), cld_conf()
     if kind == "video" and not cfg:
@@ -403,13 +507,18 @@ def media_data(db, u, mid):
 def media_file(mid):
     if not re.fullmatch(r"[0-9a-f]{24}", mid):
         return "", 404
+    try:
+        if ser.loads(request.args.get("s", ""), salt="media", max_age=21600) != mid:
+            return "", 403
+    except (BadSignature, SignatureExpired):
+        return "", 403
     with Session() as db:
         m = db.get(Media, mid)
         data = m.data if m and m.provider == "db" and not m.once and not m.gone else ""
     if not data:
         return "", 404
     r = Response(base64.b64decode(data.split(",", 1)[1]), mimetype="image/jpeg")
-    r.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    r.headers["Cache-Control"] = "private, max-age=3600"
     return r
 
 
@@ -464,6 +573,8 @@ def media_done(db, u, mid):
 @app.post("/api/stickers")
 @authed
 def sticker_up(db, u):
+    if not RL.hit("stk:" + u.player_id, 40, 600):
+        return jsonify(error="Terlalu banyak unggahan stiker. Tunggu sebentar."), 429
     d = (request.get_json(silent=True) or {}).get("data") or ""
     if len(d) > 120000 or not STK_DATA.match(d):
         return jsonify(error="Stiker tidak valid atau terlalu besar."), 400
@@ -598,6 +709,19 @@ def adm_delete_room(db, u, rid):
     return jsonify(ok=True)
 
 
+@app.get("/api/admin/security")
+@owner_only
+def adm_security(db, u):
+    cs, cld = crypto_status(), cld_conf()
+    turn = bool(os.getenv("METERED_API_KEY") or os.getenv("TURN_URL"))
+    return jsonify(items=[
+        {"name": "Kunci sesi (SECRET_KEY)", "ok": SECRET_OK, "note": "terisi" if SECRET_OK else "BELUM diisi atau terlalu pendek"},
+        {"name": "Enkripsi pesan di database", "ok": cs == "aktif", "note": cs},
+        {"name": "Penyimpanan video (Cloudinary)", "ok": bool(cld), "note": "terhubung" if cld else "belum diisi"},
+        {"name": "Server TURN untuk panggilan", "ok": turn, "note": "terhubung" if turn else "belum diisi"},
+        {"name": "Owner ditetapkan manual (OWNER_IDS)", "ok": bool(OWNER_IDS), "note": "ya" if OWNER_IDS else "belum, memakai akun pertama"}])
+
+
 @app.post("/api/admin/banner")
 @owner_only
 def adm_banner(db, u):
@@ -617,7 +741,7 @@ def adm_announce(db, u):
     if not text:
         return jsonify(error="Isi pengumuman kosong."), 400
     pids = [p for (p,) in db.query(User.player_id).filter(User.player_id != OFFICIAL) if p not in _cache["banned"]]
-    db.add_all([Message(sender=OFFICIAL, to_id=p, kind="text", body=text) for p in pids])
+    db.add_all([Message(sender=OFFICIAL, to_id=p, kind="text", body=enc(text)) for p in pids])
     db.commit()
     return jsonify(sent=len(pids))
 
@@ -648,7 +772,9 @@ def history(db, u):
     else:
         cond = or_((Message.sender == me_id) & (Message.to_id == p),
                    (Message.sender == p) & (Message.to_id == me_id))
-    rows = db.query(Message).filter(Message.kind == "text", cond).order_by(Message.id.desc()).limit(200).all()
+    bl = blocked_list(db, me_id)
+    blk = [~Message.sender.in_(bl)] if bl else []
+    rows = db.query(Message).filter(Message.kind == "text", cond, *blk).order_by(Message.id.desc()).limit(200).all()
     return jsonify(messages=[m.public() for m in reversed(rows)])
 
 
@@ -663,11 +789,13 @@ def poll(db, u):
         return jsonify(events=[], last=db.query(func.max(Message.id)).scalar() or 0)
     deadline = time.time() + (6 if request.args.get("wait", type=int) else 0)
     cut = datetime.utcnow() - timedelta(seconds=90)
+    bl = blocked_list(db, u.player_id)
+    blk = [~Message.sender.in_(bl)] if bl else []  # pesan dari pengguna yang kamu blokir tidak diterima
     while True:
         tags = ["R-%d" % m.room_id for m in db.query(RoomMember).filter_by(player_id=u.player_id)]
         rows = (db.query(Message).filter(Message.id > after, or_(
                 (Message.to_id == u.player_id) & or_(Message.kind == "text", Message.created_at > cut),
-                Message.to_id.in_(tags) & (Message.sender != u.player_id)))
+                Message.to_id.in_(tags) & (Message.sender != u.player_id)), *blk)
                 .order_by(Message.id).limit(100).all())
         if rows or time.time() >= deadline:
             break
@@ -716,18 +844,45 @@ def profile_post(db, u):
     db.add(e)
     if "avatar" in d:
         a = d["avatar"] or ""
-        p.avatar = a if a.startswith("data:image/") and len(a) < 150000 else ""
+        p.avatar = a if safe_data_url(a, 150000) else ""
     if "status" in d:
         p.status = (d["status"] or "")[:80]
     if "cover" in d:
         c = d["cover"] or ""
-        e.cover = c if c.startswith("data:image/") and len(c) < 200000 else ""
+        e.cover = c if safe_data_url(c, 200000) else ""
     if "public" in d:
         e.public = bool(d["public"])
     if "show_seen" in d:
         e.show_seen = bool(d["show_seen"])
     db.commit()
     return jsonify(user=pub(u, prof(db, [u.player_id]), True))
+
+
+def blocked_list(db, pid):
+    return [b.target for b in db.query(Block).filter_by(owner=pid)]
+
+
+@app.get("/api/blocks")
+@authed
+def blocks_get(db, u):
+    ids = blocked_list(db, u.player_id)
+    names = {x.player_id: x.full_name for x in db.query(User).filter(User.player_id.in_(ids))} if ids else {}
+    return jsonify(blocks=[{"player_id": i, "full_name": names.get(i, i)} for i in ids])
+
+
+@app.post("/api/blocks/<pid>")
+@authed
+def blocks_set(db, u, pid):
+    pid = pid.strip().upper()
+    if pid == OFFICIAL or pid == u.player_id or not db.query(User.id).filter_by(player_id=pid).first():
+        return jsonify(error="Pengguna ini tidak bisa diblokir."), 400
+    on, cur = bool((request.get_json(silent=True) or {}).get("value")), db.get(Block, (u.player_id, pid))
+    if on and not cur:
+        db.add(Block(owner=u.player_id, target=pid))
+    elif not on and cur:
+        db.delete(cur)
+    db.commit()
+    return jsonify(ok=True)
 
 
 @app.get("/api/presence")
@@ -749,8 +904,10 @@ def chats(db, u):
     """Pesan terakhir tiap percakapan, untuk daftar chat."""
     me_id = u.player_id
     tags = ["R-%d" % m.room_id for m in db.query(RoomMember).filter_by(player_id=me_id)]
+    bl = blocked_list(db, me_id)
+    blk = [~Message.sender.in_(bl)] if bl else []
     rows = (db.query(Message).filter(Message.kind == "text", or_(
-            Message.sender == me_id, Message.to_id == me_id, Message.to_id.in_(tags)))
+            Message.sender == me_id, Message.to_id == me_id, Message.to_id.in_(tags)), *blk)
             .order_by(Message.id.desc()).limit(400).all())
     seen, out = set(), []
     for m in rows:
@@ -758,7 +915,7 @@ def chats(db, u):
         if key in seen:
             continue
         seen.add(key)
-        out.append({"key": key, "body": m.body[:120], "t": m.created_at.isoformat() + "Z", "mine": m.sender == me_id})
+        out.append({"key": key, "body": dec(m.body)[:120], "t": m.created_at.isoformat() + "Z", "mine": m.sender == me_id})
     return jsonify(chats=out)
 
 
@@ -778,7 +935,7 @@ def stories_post(db, u):
     d = request.get_json(silent=True) or {}
     kind, body = (d.get("kind") if d.get("kind") in ("img", "vid") else "text"), d.get("body") or ""
     if not body or (kind == "text" and len(body) > 300) or \
-            (kind == "img" and (not body.startswith("data:image/") or len(body) > 200000)):
+            (kind == "img" and not safe_data_url(body, 200000)):
         return jsonify(error="Story tidak valid atau terlalu besar."), 400
     if kind == "vid":
         mm = MED_RE.match(body)

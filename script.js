@@ -45,6 +45,7 @@ function initLogin() {
         const body = Object.fromEntries(new FormData(form));
         const data = await api(path, { method: "POST", body: JSON.stringify(body) });
         localStorage.setItem("nova_token", data.token);
+        localStorage.setItem("nova_weakpw", path === "/login" && data.weak ? "1" : "0");
         location.href = "dashboard.html";
       } catch (err) {
         msg.textContent = err.message;
@@ -63,7 +64,8 @@ async function initDashboard() {
   const st = { contacts: [], rooms: [], stories: [], calls: [], cur: null, unread: {}, last: {}, lastT: {}, seen: {}, filter: "all", tab: "home" };
   const mk = (tag, txt, cls) => { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
   const hue = (n) => [...n].reduce((a, c) => a + c.charCodeAt(0), 0) * 37 % 360;
-  const av = (n, img) => { const e = mk("div", img ? "" : (n[0] || "?").toUpperCase(), "av"); e.style.background = img ? "url(" + img + ") center/cover" : "hsl(" + hue(n) + ",85%,78%)"; return e; };
+  const safeImg = (u) => (/^(data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}|logo\.png)$/.test(u || "") ? u : "");
+  const av = (n, img) => { const g = safeImg(img), e = mk("div", g ? "" : (n[0] || "?").toUpperCase(), "av"); e.style.background = g ? "url(" + g + ") center/cover" : "hsl(" + hue(n) + ",85%,78%)"; return e; };
   const toast = (msg) => {
     document.querySelectorAll(".toast").forEach((t) => t.remove());
     const t = mk("div", msg, "toast"); t.setAttribute("role", "status"); document.body.append(t);
@@ -77,7 +79,7 @@ async function initDashboard() {
   const fmtDur = (n) => Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
   const sha24 = async (t) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].slice(0, 12).map((x) => x.toString(16).padStart(2, "0")).join("");
   /* Kotak dialog bergaya NOVA, pengganti prompt() bawaan browser. Hasil: objek isian, atau null kalau dibatalkan. */
-  function dialog({ title, desc, fields = [], contacts = null, ok = "Simpan", actions = [] }) {
+  function dialog({ title, desc, fields = [], contacts = null, ok = "Simpan", actions = [], cancel = null }) {
     return new Promise((resolve) => {
       const prev = document.activeElement;
       const back = mk("div", null, "dlg-back"), box = mk("div", null, "dlg"), form = mk("form");
@@ -88,7 +90,7 @@ async function initDashboard() {
       const els = {};
       fields.forEach((f) => {
         const lab = mk("label"), inp = mk(f.multiline ? "textarea" : "input");
-        inp.value = f.value || ""; inp.placeholder = f.placeholder || ""; inp.autocomplete = "off";
+        inp.value = f.value || ""; inp.placeholder = f.placeholder || ""; inp.autocomplete = f.auto || "off"; if (f.type) inp.type = f.type;
         if (f.max) inp.maxLength = f.max;
         if (f.multiline) inp.rows = 4;
         if (f.inputmode) inp.inputMode = f.inputmode;
@@ -107,8 +109,8 @@ async function initDashboard() {
         }
       }
       const err = mk("p", "", "dlg-e"); err.setAttribute("role", "alert"); form.append(err);
-      const row = mk("div", null, "dlg-b"), no = mk("button", "Batal", "btn ghost"), yes = mk("button", ok, "btn");
-      no.type = "button"; yes.type = "submit"; if (ok === null) { no.textContent = "Tutup"; row.append(no); } else row.append(no, yes); form.append(row);
+      const row = mk("div", null, "dlg-b"), no = mk("button", cancel || "Batal", "btn ghost"), yes = mk("button", ok, "btn");
+      no.type = "button"; yes.type = "submit"; if (ok === null) { no.textContent = cancel || "Tutup"; row.append(no); } else row.append(no, yes); form.append(row);
       box.append(form); back.append(box); document.body.append(back);
       const done = (v) => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); resolve(v); };
       const onKey = (e) => {
@@ -126,7 +128,7 @@ async function initDashboard() {
         e.preventDefault();
         const out = {};
         for (const f of fields) {
-          out[f.name] = els[f.name].value.trim();
+          out[f.name] = f.type === "password" ? els[f.name].value : els[f.name].value.trim();
           if (f.required && !out[f.name]) { err.textContent = f.label + " wajib diisi."; els[f.name].focus(); return; }
         }
         out.members = checks.filter((c) => c.checked).map((c) => c.value);
@@ -218,7 +220,7 @@ async function initDashboard() {
     const card = (o, label, onclick) => {
       const l = st.stories.filter((s) => s.owner === o), s = l[l.length - 1], b = mk("button", null, "sc");
       if (!s) b.classList.add("empty");
-      else if (s.kind === "img") b.style.backgroundImage = 'url("' + s.body + '")';
+      else if (s.kind === "img") b.style.backgroundImage = 'url("' + safeImg(s.body) + '")';
       else if (s.kind === "vid") { b.style.background = "#111"; b.append(ic("play", "pl")); const vm = medOf(s.body); if (vm) needMeta(vm.id, (mt) => { if (mt.thumb) b.style.background = 'url("' + mt.thumb + '") center/cover'; }); }
       else { b.style.background = "linear-gradient(160deg,hsl(" + hue(s.body) + ",85%,62%),hsl(" + ((hue(s.body) + 50) % 360) + ",80%,48%))"; b.append(mk("p", s.body, "sct")); }
       b.append(av(nameOf(o), imgOf(o)), mk("span", label, "scn"));
@@ -246,7 +248,7 @@ async function initDashboard() {
     $("#pav").replaceChildren(av(me.full_name, me.avatar));
     $("#pname").textContent = me.full_name; $("#pstat").textContent = me.status || "Belum ada status";
     $("#pid").textContent = me.player_id; $("#pyear").textContent = "Lahir " + me.birth_year;
-    $("#pcover").style.backgroundImage = me.cover ? 'url("' + me.cover + '")' : "";
+    $("#pcover").style.backgroundImage = safeImg(me.cover) ? 'url("' + me.cover + '")' : "";
     $("#pver").toggleAttribute("hidden", !me.verified); $("#pown").hidden = !me.owner; $("#admbtn").hidden = !me.is_owner; $("#pvb").toggleAttribute("hidden", !me.verified); $("#copysub").textContent = me.player_id;
     $("#swpub").setAttribute("aria-checked", String(me.public !== false)); $("#swseen").setAttribute("aria-checked", String(me.show_seen !== false));
   }
@@ -317,7 +319,7 @@ async function initDashboard() {
     $("#rav").replaceChildren(av(nameOf(p), imgOf(p)));
     $("#rid").className = ""; $("#rid").textContent = r ? (r.kind === "group" ? "Grup" : "Saluran · " + r.count + " pengikut") : p;
     roomSub(); $("#tray").hidden = true;
-    $("#savebtn").hidden = !!r || saved(p) || p === OFFICIAL; $("#vbtn").hidden = $("#abtn").hidden = !!r || p === OFFICIAL;
+    $("#savebtn").hidden = !!r || saved(p) || p === OFFICIAL; $("#morebtn").hidden = !!r || p === OFFICIAL; $("#vbtn").hidden = $("#abtn").hidden = !!r || p === OFFICIAL;
     $("#form").hidden = (!!r && r.kind === "channel" && r.owner !== me.player_id) || p === OFFICIAL;
     $("#msgs").replaceChildren(); show("room");
     (await api("/history?peer=" + encodeURIComponent(p))).messages.forEach(addMsg);
@@ -1040,8 +1042,53 @@ async function initDashboard() {
   });
 
   /* ----- polling pesan + sinyal ----- */
-  await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence()]);
+  await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence(), loadBlocks()]);
   show("home");
+  /* ----- keamanan akun: ganti password, blokir ----- */
+  async function changePassword() {
+    const r = await dialog({ title: "Ubah password", desc: "Minimal 8 karakter dan jangan memuat namamu. Perangkat lain perlu masuk ulang setelah ini.", fields: [
+      { name: "old", label: "Password lama", type: "password", auto: "current-password", required: true },
+      { name: "n1", label: "Password baru", type: "password", auto: "new-password", required: true },
+      { name: "n2", label: "Ulangi password baru", type: "password", auto: "new-password", required: true }], ok: "Ganti password" });
+    if (!r) return;
+    if (r.n1 !== r.n2) { toast("Password baru dan ulangannya tidak sama."); return changePassword(); }
+    try {
+      const d = await api("/password", { method: "POST", body: JSON.stringify({ old: r.old, new: r.n1 }) });
+      localStorage.setItem("nova_token", d.token); localStorage.setItem("nova_weakpw", "0"); toast("Password diganti");
+    } catch (e) { toast(e.message); }
+  }
+  $("#pwbtn").onclick = changePassword;
+  st.blocked = new Set();
+  async function loadBlocks() { try { st.blocked = new Set((await api("/blocks")).blocks.map((b) => b.player_id)); } catch {} }
+  $("#morebtn").onclick = async () => {
+    const p = st.cur; if (!p || isRoom(p) || p === OFFICIAL) return;
+    const was = st.blocked.has(p);
+    const r = await dialog({ title: nameOf(p), desc: "ID " + p, ok: null, actions: [{ key: "blk", label: was ? "Buka blokir" : "Blokir pengguna", danger: !was }] });
+    if (!r) return;
+    if (!was && !(await dialog({ title: "Blokir " + nameOf(p) + "?", desc: "Pesan dan panggilan darinya tidak akan sampai ke kamu, dan dia tidak diberi tahu.", ok: "Blokir" }))) return;
+    try { await api("/blocks/" + p, { method: "POST", body: JSON.stringify({ value: !was }) }); await loadBlocks(); toast(was ? "Blokir dibuka" : "Pengguna diblokir"); } catch (e) { toast(e.message); }
+  };
+  $("#blkbtn").onclick = async () => {
+    try {
+      const r = await api("/blocks");
+      if (!r.blocks.length) return toast("Belum ada pengguna yang diblokir.");
+      const pk = await dialog({ title: "Pengguna diblokir", desc: "Pilih untuk membuka blokir.", ok: null, actions: r.blocks.map((b) => ({ key: b.player_id, label: "Buka blokir: " + b.full_name })) });
+      if (pk) { await api("/blocks/" + pk.action, { method: "POST", body: JSON.stringify({ value: false }) }); await loadBlocks(); toast("Blokir dibuka"); }
+    } catch (e) { toast(e.message); }
+  };
+  const askPw = async (n = 0) => {  // ajakan ganti password: pilihan pemilik akun, tidak dipaksa, tidak mengganggu saat sedang sibuk
+    const weak = localStorage.getItem("nova_weakpw") === "1", last = +localStorage.getItem("nova_pwask") || 0;
+    if (weak ? Date.now() - last < 7 * 864e5 : last) return;
+    const busy = !$("#room").hidden || document.querySelector(".dlg-back,.sc-back,.mv,.lock:not([hidden]),#sv:not([hidden]),#call:not([hidden]),#incoming:not([hidden])");
+    if (busy) { if (n < 30) setTimeout(() => askPw(n + 1), 6000); return; }
+    localStorage.setItem("nova_pwask", String(Date.now()));
+    const r = await dialog({ title: weak ? "Password-mu masih pendek" : "Perkuat keamanan akunmu",
+      desc: weak ? "Password akunmu kurang dari 8 karakter sehingga mudah ditebak. Mau ganti sekarang? Ini pilihanmu, kamu juga bisa menggantinya nanti di Profil." : "Kamu bisa mengganti password kapan saja di Profil. Mau ganti sekarang untuk keamanan lebih lanjut?",
+      ok: null, cancel: "Nanti saja", actions: [{ key: "go", label: "Ganti password sekarang" }] });
+    if (r && r.action === "go") changePassword();
+  };
+  setTimeout(askPw, 2500);
+
   /* ----- panel owner ----- */
   const ago = (t) => { if (!t) return "belum pernah"; const d = (Date.now() - Date.parse(t)) / 1000; if (d < 90) return "baru saja"; if (d < 3600) return Math.round(d / 60) + " mnt lalu"; if (d < 86400) return Math.round(d / 3600) + " jam lalu"; return Math.round(d / 86400) + " hari lalu"; };
   const dshort = (t) => (t ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "-");
@@ -1050,8 +1097,9 @@ async function initDashboard() {
   async function loadAdmin() {
     try {
       const q = $("#ausearch").value.trim();
-      const [s, u, r] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/rooms")]);
+      const [s, u, r, sc] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/rooms"), api("/admin/security")]);
       adm.stats = s;
+      $("#asec").replaceChildren(...sc.items.map((x) => { const li = mk("li", null, "sitem " + (x.ok ? "ok" : "bad")); li.append(mk("b", (x.ok ? "✓ " : "✗ ") + x.name), mk("small", x.note)); return li; }));
       $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
       $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
         () => userActions(x), { verified: x.verified, tag: x.owner ? "OWNER" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
@@ -1150,6 +1198,7 @@ function initLanding() {
   document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === document.body) reveal(); });
 }
 
+document.querySelectorAll("img.logo").forEach((i) => i.addEventListener("error", () => (i.style.display = "none")));
 const page = document.body.dataset.page;
 if (page === "dashboard") splash();
 if (page === "landing") initLanding();
