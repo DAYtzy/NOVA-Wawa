@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#FFD93D">
+<title>Password baru - NOVA WAWA</title>
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-page="reset">
+<main class="center">
+  <img src="logo.png" alt="NOVA WAWA" class="logo small">
+  <section class="card">
+    <h1 class="h1s">Buat password baru</h1>
+    <p class="sub left">Minimal 8 karakter dan jangan memuat namamu. Setelah ini, semua perangkat perlu masuk ulang.</p>
+    <p id="msg" class="msg" role="alert"></p>
+    <form id="r-form">
+      <label>Password baru<input type="password" name="p1" minlength="8" required autocomplete="new-password"></label>
+      <label>Ulangi password baru<input type="password" name="p2" minlength="8" required autocomplete="new-password"></label>
+      <button class="btn" type="submit">Simpan password</button>
+    </form>
+    <a id="toLogin" href="login.html" class="btn" hidden>Masuk sekarang</a>
+  </section>
+  <a href="forgot.html" class="link">Minta tautan baru</a>
+</main>
+<script src="script.js"></script>
+</body>
+</html>
