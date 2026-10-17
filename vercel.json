@@ -11,7 +11,9 @@
           "*.js",
           "logo.png",
           "login.mp4",
-          "intro.mp4"
+          "intro.mp4",
+          "manifest.json",
+          "icon-*.png"
         ]
       }
     }

@@ -1,36 +1,54 @@
 # NOVA WAWA
 
-Chat + telpon + video call tanpa aplikasi/web pihak ketiga (WebRTC native browser).
-Tetap jalan di **Vercel + Neon** (tidak perlu Render).
+Aplikasi chat bergaya WhatsApp: chat pribadi, grup, saluran, story foto/video/teks, stiker buatan sendiri,
+telepon dan video call, notifikasi push, serta panel owner. Frontend HTML/CSS/JS biasa, backend Flask,
+database PostgreSQL (Neon), dan di-host di Vercel.
 
-## Cara kerja
-- **Save ID**: tombol `+` (kanan bawah) atau "SIMPAN ID" di chat. Teman yang ID-nya disimpan muncul di baris atas dan daftar chat dengan namanya. Pengirim yang belum disimpan tampil sebagai ID.
-- **Real-time**: polling ~1,5 detik (Vercel tidak mendukung WebSocket). Sinyal panggilan WebRTC juga lewat polling, jadi telpon tersambung dalam beberapa detik.
-- **Telpon / video**: tombol TELPON dan VIDEO di dalam chat. Video lawan layar penuh, video sendiri bisa digeser.
+## Struktur
+| File | Isi |
+|---|---|
+| `app.py` | Semua rute API (Flask) |
+| `database.py` | Tabel database (SQLAlchemy) |
+| `security.py` | Header keamanan (CSP), aturan password, validasi gambar, enkripsi pesan |
+| `mailer.py` | Pengiriman email (Resend atau SMTP) |
+| `push.py` | Notifikasi push (VAPID + enkripsi RFC 8291) |
+| `index.html` `login.html` `dashboard.html` | Halaman utama |
+| `forgot.html` `reset.html` `verify.html` | Lupa password dan verifikasi email |
+| `terms.html` `privacy.html` | Syarat dan Kebijakan Privasi (draf, sesuaikan sendiri) |
+| `script.js` `style.css` | Logika dan tampilan |
+| `sw.js` `manifest.json` `icon-*.png` | PWA dan notifikasi push |
+| `vercel.json` | Konfigurasi Vercel (server di Singapura) |
 
-## Lokal
-```bash
+## Variabel lingkungan (Vercel: Settings, Environment Variables)
+| Nama | Wajib? | Fungsi |
+|---|---|---|
+| `SECRET_KEY` | **Ya** (min. 16 karakter) | Menandatangani sesi login. Tanpa ini API menolak jalan |
+| `DATABASE_URL` | **Ya** | Alamat database Neon |
+| `OWNER_IDS` | Disarankan | ID angka owner, pisahkan koma. Kosong = akun pertama yang mendaftar |
+| `DATA_KEY` | Disarankan (min. 24 karakter) | Mengenkripsi isi pesan di database. **Jangan hilang atau berganti** |
+| `CLOUDINARY_CLOUD_NAME` `CLOUDINARY_API_KEY` `CLOUDINARY_API_SECRET` | Untuk video | Penyimpanan video dan foto |
+| `METERED_DOMAIN` `METERED_API_KEY` | Untuk telepon andal | Server TURN supaya telepon antar jaringan seluler tidak gagal |
+| `RESEND_API_KEY` + `MAIL_FROM` **atau** `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | Untuk lupa password dan verifikasi email | Pengirim email. Gmail bisa dipakai lewat sandi aplikasi |
+| `PUBLIC_URL` | Opsional | Alamat situs untuk tautan di email (mis. `https://nova-wawa.vercel.app`) |
+| `VAPID_SUBJECT` | Opsional | Kontak untuk layanan push (mis. `mailto:kamu@email.com`) |
+
+Kartu **Keamanan** di Panel Owner menunjukkan pengaturan mana yang sudah aktif.
+
+## Daftar periksa setelah deploy
+1. Isi `SECRET_KEY`, `DATABASE_URL`, `OWNER_IDS`, dan `DATA_KEY`, lalu Redeploy.
+2. Pasang pemantau gratis (UptimeRobot): monitor HTTP ke `https://DOMAINMU/api/health` tiap 5 menit.
+3. Neon: buka konsol Neon, lihat **Restore / Backup** dan catat berapa lama riwayat yang disimpan paket gratismu.
+4. Daftarkan akun pertamamu, buka Profil, dan pastikan tombol Panel Owner muncul.
+5. Baca `terms.html` dan `privacy.html`, sesuaikan, dan tambahkan kontak resmi.
+
+## Menjalankan di komputer
+```
 pip install -r requirements.txt
-cp .env.example .env
-python app.py        # http://localhost:5000
+python app.py
 ```
+Tanpa `DATABASE_URL`, aplikasi memakai SQLite lokal (`nova.db`).
 
-## Deploy
-Upload semua file ke GitHub (replace). Vercel otomatis deploy. `SECRET_KEY` dan `DATABASE_URL` tetap sama. Tabel `contacts` dan `messages` dibuat otomatis, atau jalankan SQL:
-```sql
-CREATE TABLE IF NOT EXISTS contacts (
-  id SERIAL PRIMARY KEY, owner VARCHAR(12) NOT NULL, contact_pid VARCHAR(12) NOT NULL);
-CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(owner);
-CREATE TABLE IF NOT EXISTS messages (
-  id SERIAL PRIMARY KEY, sender VARCHAR(12) NOT NULL, to_id VARCHAR(12) NOT NULL,
-  kind VARCHAR(8) NOT NULL DEFAULT 'text', body TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW());
-CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
-CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_id);
-```
-
-## Batasan
-- Hanya STUN Google, tanpa TURN: panggilan bisa gagal di jaringan seluler/NAT ketat.
-- Pesan tidak instan (jeda 1-2 detik) dan tanpa notifikasi saat web ditutup.
-
-## Fitur v3
-Story (teks/foto, 24 jam), grup, saluran (hanya pemilik yang posting), riwayat panggilan, foto profil + status, kunci aplikasi (sidik jari/PIN HP lewat WebAuthn, hanya kunci layar lokal). Tabel baru (`profiles`, `stories`, `rooms`, `room_members`, `calls`) dibuat otomatis; tabel `users` tidak diubah.
+## Batasan yang perlu diketahui
+- Pesan **tidak** terenkripsi ujung ke ujung. Enkripsi di database hanya melindungi dari kebocoran database saja.
+- Pesan baru diambil dengan long polling (bukan WebSocket) karena Vercel tidak mendukung WebSocket.
+- Telepon masuk berdering hanya jika aplikasi terbuka; selain itu pengguna menerima notifikasi push (jika diaktifkan).

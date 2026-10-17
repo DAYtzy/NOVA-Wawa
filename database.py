@@ -172,3 +172,37 @@ class PwChange(Base):  # akun yang pernah ganti password: sesi lama (token lama)
     __tablename__ = "pw_changes"
     player_id = Column(String(12), primary_key=True)
     at = Column(DateTime)
+
+
+class EmailOk(Base):  # email yang sudah diverifikasi lewat tautan
+    __tablename__ = "email_ok"
+    player_id = Column(String(12), primary_key=True)
+    at = Column(DateTime)
+
+
+class PrivPref(Base):  # siapa yang boleh melihat story dan terakhir dilihat: all | mutual | none
+    __tablename__ = "priv_pref"
+    player_id = Column(String(12), primary_key=True)
+    story_vis = Column(String(8), default="all")
+    seen_vis = Column(String(8), default="all")
+
+
+class Report(Base):  # laporan pengguna
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True)
+    reporter = Column(String(12), nullable=False, index=True)
+    target = Column(String(12), nullable=False, index=True)
+    reason = Column(String(20), nullable=False)
+    detail = Column(String(300), default="")
+    status = Column(String(10), default="baru")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class PushSub(Base):  # perangkat yang mengaktifkan notifikasi
+    __tablename__ = "push_subs"
+    id = Column(Integer, primary_key=True)
+    player_id = Column(String(12), nullable=False, index=True)
+    endpoint = Column(Text, nullable=False, unique=True)
+    p256dh = Column(String(120), nullable=False)
+    auth = Column(String(40), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())

@@ -7,6 +7,10 @@ async function api(path, opts = {}) {
   const res = await fetch("/api" + path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 401 && /dashboard/.test(location.pathname)) {  // sesi sudah tidak berlaku (mis. password diganti di perangkat lain)
+      localStorage.removeItem("nova_token"); try { sessionStorage.setItem("nova_notice", "Sesimu berakhir. Silakan masuk lagi."); } catch {}
+      location.href = "login.html";
+    }
     if (res.status === 403 && data.banned) {  // akun diblokir owner: keluar dan tampilkan alasannya di halaman masuk
       localStorage.removeItem("nova_token"); try { sessionStorage.setItem("nova_notice", data.error); } catch {}
       if (!/login/.test(location.pathname)) location.href = "login.html";
@@ -142,6 +146,7 @@ async function initDashboard() {
   const contact = (p) => st.contacts.find((c) => c.player_id === p);
   const saved = (p) => !!contact(p);
   const OFFICIAL = "NOVA";
+  const VIS = { all: "Semua yang menyimpan ID-ku", mutual: "Hanya kontak yang juga kusimpan", none: "Tidak ada" };
   const nameOf = (p) => (p === me.player_id ? me.full_name : p === OFFICIAL ? "NOVA WAWA" : isRoom(p) ? (roomOf(p) || { name: "Grup" }).name : (contact(p) || { full_name: p }).full_name);
   const imgOf = (p) => (p === me.player_id ? me.avatar : p === OFFICIAL ? "logo.png" : (contact(p) || {}).avatar);
   const fmt = (t) => new Date(t).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -179,7 +184,7 @@ async function initDashboard() {
   const pick = (max, q, lim) => new Promise((res) => { const f = $("#pick"); f.value = ""; f.onchange = () => f.files[0] && resize(f.files[0], max, q, lim).then(res); f.click(); });
 
   const SCREENS = ["home", "upd", "calls", "profile", "room", "explore", "admin"];
-  const loaders = { upd: () => { loadStories(); loadRooms(); }, calls: loadCalls, explore: loadRooms, admin: () => { $("#abanner").value = me.announce || ""; loadAdmin(); } };
+  const loaders = { upd: () => { loadStories(); loadRooms(); }, calls: loadCalls, explore: loadRooms, profile: () => refreshPush(), admin: () => { $("#abanner").value = me.announce || ""; loadAdmin(); } };
   const TITLES = { home: "NOVA WAWA", upd: "Pembaruan", calls: "Panggilan", profile: "Profil", explore: "Cari Saluran", admin: "Panel Owner" };
   function show(id) {
     st.screen = id; if (id !== "room" && id !== "explore" && id !== "admin") st.tab = id;
@@ -250,7 +255,7 @@ async function initDashboard() {
     $("#pid").textContent = me.player_id; $("#pyear").textContent = "Lahir " + me.birth_year;
     $("#pcover").style.backgroundImage = safeImg(me.cover) ? 'url("' + me.cover + '")' : "";
     $("#pver").toggleAttribute("hidden", !me.verified); $("#pown").hidden = !me.owner; $("#admbtn").hidden = !me.is_owner; $("#pvb").toggleAttribute("hidden", !me.verified); $("#copysub").textContent = me.player_id;
-    $("#swpub").setAttribute("aria-checked", String(me.public !== false)); $("#swseen").setAttribute("aria-checked", String(me.show_seen !== false));
+    $("#swpub").setAttribute("aria-checked", String(me.public !== false)); $("#storysub").textContent = VIS[me.story_vis || "all"]; $("#seensub").textContent = VIS[me.seen_vis || "all"]; $("#verifybtn").hidden = !(me.mail && !me.email_verified);
   }
   async function loadContacts() { st.contacts = (await api("/contacts")).contacts; render(); }
   async function loadStories() { try { st.stories = (await api("/stories")).stories; render(); } catch {} }
@@ -864,7 +869,12 @@ async function initDashboard() {
   $("#pphoto").onclick = async () => saveProfile({ avatar: await pick(160, 0.75, 140000) });
   $("#pcov").onclick = async () => saveProfile({ cover: await pick(720, 0.6, 190000) });
   $("#swpub").onclick = () => saveProfile({ public: me.public === false });
-  $("#swseen").onclick = () => saveProfile({ show_seen: me.show_seen === false });
+  const pickVis = async (title, key) => {
+    const r = await dialog({ title, desc: "Orang yang tidak diizinkan tidak akan melihatnya.", ok: null, actions: Object.entries(VIS).map(([k, l]) => ({ key: k, label: (me[key] === k ? "✓ " : "") + l })) });
+    if (r) saveProfile({ [key]: r.action });
+  };
+  $("#storybtn").onclick = () => pickVis("Siapa yang bisa melihat story-ku", "story_vis");
+  $("#seenbtn").onclick = () => pickVis("Terakhir dilihat dan status online", "seen_vis");
   $("#pedit").onclick = () => $("#pst").click();
   $("#pavb").onclick = () => $("#pphoto").click();
   $("#pdel").onclick = () => saveProfile({ avatar: "" });
@@ -956,8 +966,8 @@ async function initDashboard() {
     try {
       await p.setLocalDescription(await p.createOffer()); await gathered(p);
       if (pc !== p) return;
-      sdpSent = true; sig("offer", { sdp: { type: p.localDescription.type, sdp: p.localDescription.sdp }, video: v });
-    } catch { hang(false, "Tidak bisa memulai panggilan"); }
+      sdpSent = true; await send(peer, "sig", JSON.stringify({ type: "offer", data: { sdp: { type: p.localDescription.type, sdp: p.localDescription.sdp }, video: v } }));
+    } catch (e) { hang(false, (e && e.message) || "Tidak bisa memulai panggilan"); }
   }
   $("#vbtn").onclick = () => call(true);
   $("#abtn").onclick = () => call(false);
@@ -1058,16 +1068,73 @@ async function initDashboard() {
     } catch (e) { toast(e.message); }
   }
   $("#pwbtn").onclick = changePassword;
+  $("#legalbtn").onclick = () => window.open("terms.html", "_blank", "noopener");
+  $("#verifybtn").onclick = async () => { try { await api("/email/resend", { method: "POST" }); toast("Tautan verifikasi dikirim. Cek kotak masuk dan folder spam."); } catch (e) { toast(e.message); } };
+  $("#delbtn").onclick = async () => {
+    const r = await dialog({ title: "Hapus akun?", desc: "Akun, pesan, kontak, story, foto dan video, serta grup dan saluran milikmu dihapus permanen. Tidak bisa dibatalkan.", fields: [{ name: "pw", label: "Masukkan password untuk konfirmasi", type: "password", auto: "current-password", required: true }], ok: "Hapus permanen" });
+    if (!r) return;
+    try { await api("/account/delete", { method: "POST", body: JSON.stringify({ password: r.pw }) }); localStorage.clear(); location.href = "index.html"; } catch (e) { toast(e.message); }
+  };
+  /* notifikasi push */
+  const u8 = (b) => Uint8Array.from(atob(b.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(b.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+  const swReg = "serviceWorker" in navigator ? navigator.serviceWorker.register("/sw.js").catch(() => null) : Promise.resolve(null);
+  const pushOk = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  async function pushState() {
+    if (!pushOk()) return "unsupported";
+    if (Notification.permission === "denied") return "denied";
+    const reg = await swReg; if (!reg) return "unsupported";
+    return (await reg.pushManager.getSubscription()) ? "on" : "off";
+  }
+  async function refreshPush() {
+    const t = { on: "Aktif di perangkat ini. Tap untuk mematikan.", off: "Mati. Tap untuk mengaktifkan.", denied: "Diblokir di pengaturan browser.", unsupported: "Browser ini belum mendukung." };
+    $("#pushsub").textContent = t[await pushState()];
+  }
+  $("#pushbtn").onclick = async () => {
+    const s0 = await pushState();
+    if (s0 === "unsupported") return toast("Browser ini belum mendukung notifikasi. Di iPhone, tambahkan aplikasi ke layar utama dulu.");
+    if (s0 === "denied") return toast("Notifikasi diblokir. Aktifkan lewat pengaturan situs di browser.");
+    const reg = await swReg;
+    try {
+      if (s0 === "on") {
+        const sub = await reg.pushManager.getSubscription();
+        await api("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }); await sub.unsubscribe(); toast("Notifikasi dimatikan");
+      } else {
+        if ((await Notification.requestPermission()) !== "granted") return toast("Izin notifikasi tidak diberikan.");
+        const { key } = await api("/push/key");
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: u8(key) }), j = sub.toJSON();
+        await api("/push/subscribe", { method: "POST", body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }) });
+        await api("/push/test", { method: "POST" }).catch(() => {}); toast("Notifikasi aktif");
+      }
+    } catch (e) { toast(e.message || "Gagal mengatur notifikasi."); }
+    refreshPush();
+  };
+  swReg.then(async (reg) => {  // pastikan perangkat ini tercatat untuk akun yang sedang masuk
+    if (!reg || !pushOk() || Notification.permission !== "granted") return;
+    const sub = await reg.pushManager.getSubscription(); if (!sub) return;
+    const j = sub.toJSON(); api("/push/subscribe", { method: "POST", body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }) }).catch(() => {});
+  });
+  const openFromHash = () => { const m = /^#chat=(.+)$/.exec(location.hash); if (m) { history.replaceState(null, "", location.pathname); open(decodeURIComponent(m[1])); } };
+  if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", (e) => { const m = /#chat=(.+)$/.exec((e.data && e.data.url) || ""); if (e.data && e.data.type === "open" && m) open(decodeURIComponent(m[1])); });
+  setTimeout(openFromHash, 700);
   st.blocked = new Set();
   async function loadBlocks() { try { st.blocked = new Set((await api("/blocks")).blocks.map((b) => b.player_id)); } catch {} }
   $("#morebtn").onclick = async () => {
     const p = st.cur; if (!p || isRoom(p) || p === OFFICIAL) return;
     const was = st.blocked.has(p);
-    const r = await dialog({ title: nameOf(p), desc: "ID " + p, ok: null, actions: [{ key: "blk", label: was ? "Buka blokir" : "Blokir pengguna", danger: !was }] });
+    const r = await dialog({ title: nameOf(p), desc: "ID " + p, ok: null, actions: [{ key: "blk", label: was ? "Buka blokir" : "Blokir pengguna", danger: !was }, { key: "rep", label: "Laporkan pengguna" }] });
     if (!r) return;
+    if (r.action === "rep") return reportUser(p);
     if (!was && !(await dialog({ title: "Blokir " + nameOf(p) + "?", desc: "Pesan dan panggilan darinya tidak akan sampai ke kamu, dan dia tidak diberi tahu.", ok: "Blokir" }))) return;
     try { await api("/blocks/" + p, { method: "POST", body: JSON.stringify({ value: !was }) }); await loadBlocks(); toast(was ? "Blokir dibuka" : "Pengguna diblokir"); } catch (e) { toast(e.message); }
   };
+  const REASON = { spam: "Spam", pelecehan: "Pelecehan atau ancaman", penipuan: "Penipuan", tidak_pantas: "Konten tidak pantas", lainnya: "Lainnya" };
+  async function reportUser(p) {
+    const why = await dialog({ title: "Laporkan " + nameOf(p), desc: "Pilih alasan. Laporan ditinjau owner, dan orang ini tidak diberi tahu.", ok: null, actions: Object.entries(REASON).map(([k, l]) => ({ key: k, label: l })) });
+    if (!why) return;
+    const d = await dialog({ title: REASON[why.action], desc: "Tambahkan keterangan singkat (opsional).", fields: [{ name: "detail", label: "Keterangan", multiline: true, max: 300 }], ok: "Kirim laporan" });
+    if (!d) return;
+    try { await api("/reports", { method: "POST", body: JSON.stringify({ target: p, reason: why.action, detail: d.detail }) }); toast("Laporan terkirim. Terima kasih."); } catch (e) { toast(e.message); }
+  }
   $("#blkbtn").onclick = async () => {
     try {
       const r = await api("/blocks");
@@ -1097,8 +1164,10 @@ async function initDashboard() {
   async function loadAdmin() {
     try {
       const q = $("#ausearch").value.trim();
-      const [s, u, r, sc] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/rooms"), api("/admin/security")]);
+      const [s, u, r, sc, rp] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/rooms"), api("/admin/security"), api("/admin/reports")]);
       adm.stats = s;
+      $("#areports").replaceChildren(...(rp.reports.length ? rp.reports.map((x) => row(null, x.target_name + " · " + (REASON[x.reason] || x.reason),
+        x.reporter_name + " melapor · " + ago(x.t) + (x.count > 1 ? " · " + x.count + " laporan" : "") + (x.detail ? " · " + x.detail : ""), () => reportActions(x), { badge: x.blocked ? "BLOKIR" : "" })) : [emptyLi("Tidak ada laporan baru.")]));
       $("#asec").replaceChildren(...sc.items.map((x) => { const li = mk("li", null, "sitem " + (x.ok ? "ok" : "bad")); li.append(mk("b", (x.ok ? "✓ " : "✗ ") + x.name), mk("small", x.note)); return li; }));
       $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
       $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
@@ -1120,6 +1189,16 @@ async function initDashboard() {
         if (!(await dialog({ title: "Hapus akun " + x.full_name + "?", desc: "Akun, semua pesan, kontak, story, serta grup dan saluran miliknya dihapus permanen. Tidak bisa dibatalkan.", ok: "Hapus permanen" }))) return;
         await api("/admin/users/" + x.player_id, { method: "DELETE" });
       }
+      toast("Berhasil"); loadAdmin();
+    } catch (e) { toast(e.message); }
+  }
+  async function reportActions(x) {
+    const r = await dialog({ title: "Laporan: " + x.target_name, desc: (REASON[x.reason] || x.reason) + " · dari " + x.reporter_name + (x.detail ? "\n" + x.detail : "") + "\nTotal laporan atas akun ini: " + x.count, ok: null, actions: [
+      ...(x.blocked ? [] : [{ key: "block", label: "Blokir " + x.target_name, danger: true }]), { key: "selesai", label: "Tandai selesai" }, { key: "diabaikan", label: "Abaikan laporan" }] });
+    if (!r) return;
+    try {
+      if (r.action === "block") await api("/admin/users/" + x.target + "/block", { method: "POST", body: JSON.stringify({ value: true }) });
+      else await api("/admin/reports/" + x.id, { method: "POST", body: JSON.stringify({ status: r.action }) });
       toast("Berhasil"); loadAdmin();
     } catch (e) { toast(e.message); }
   }
@@ -1199,8 +1278,41 @@ function initLanding() {
 }
 
 document.querySelectorAll("img.logo").forEach((i) => i.addEventListener("error", () => (i.style.display = "none")));
+function initForgot() {
+  const f = $("#f-form"), msg = $("#msg");
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault(); const b = f.querySelector("button"); b.disabled = true; msg.className = "msg"; msg.textContent = "";
+    try {
+      await api("/forgot", { method: "POST", body: JSON.stringify({ email: f.email.value }) });
+      msg.className = "msg okmsg"; msg.textContent = "Kalau emailmu terdaftar, tautan untuk membuat password baru sudah dikirim. Cek kotak masuk dan folder spam.";
+    } catch (err) { msg.textContent = err.message; }
+    b.disabled = false;
+  });
+}
+function initReset() {
+  const t = new URLSearchParams(location.search).get("t") || "", f = $("#r-form"), msg = $("#msg");
+  if (!t) { msg.textContent = "Tautan tidak lengkap. Minta tautan baru."; f.hidden = true; return; }
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault(); msg.className = "msg"; msg.textContent = "";
+    if (f.p1.value !== f.p2.value) { msg.textContent = "Password baru dan ulangannya tidak sama."; return; }
+    const b = f.querySelector("button"); b.disabled = true;
+    try {
+      await api("/reset", { method: "POST", body: JSON.stringify({ token: t, password: f.p1.value }) });
+      localStorage.removeItem("nova_token"); msg.className = "msg okmsg"; msg.textContent = "Password berhasil diganti. Silakan masuk dengan password baru."; f.hidden = true; $("#toLogin").hidden = false;
+    } catch (err) { msg.textContent = err.message; b.disabled = false; }
+  });
+}
+async function initVerify() {
+  const t = new URLSearchParams(location.search).get("t") || "", msg = $("#msg");
+  try { await api("/email/verify", { method: "POST", body: JSON.stringify({ token: t }) }); msg.className = "msg okmsg"; msg.textContent = "Email berhasil diverifikasi. Terima kasih!"; }
+  catch (err) { msg.className = "msg"; msg.textContent = err.message; }
+}
+
 const page = document.body.dataset.page;
 if (page === "dashboard") splash();
 if (page === "landing") initLanding();
 if (page === "login") initLogin();
+if (page === "forgot") initForgot();
+if (page === "reset") initReset();
+if (page === "verify") initVerify();
 if (page === "dashboard") initDashboard();

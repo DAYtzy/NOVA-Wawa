@@ -365,3 +365,19 @@ textarea:focus-visible{outline:3px solid var(--red);outline-offset:2px}
 .sitem.ok{border-left:12px solid var(--grn)}
 .sitem.bad{border-left:12px solid var(--red)}
 .sitem small{color:var(--mut);font-size:.75rem}
+
+/* persetujuan, halaman hukum, pemulihan akun */
+.chk{flex-direction:row;align-items:flex-start;gap:.6rem;font-weight:500;font-size:.8rem}
+.chk input{width:22px;height:22px;flex:none;accent-color:var(--red);padding:0}
+.chk a,.legal-links a,.legal a{color:var(--ink);font-weight:700}
+.legal-links{margin:.4rem 0 0;font-size:.8rem;color:var(--mut);text-align:center}
+.h1s{font-size:1.5rem;letter-spacing:.04em;margin:0 0 .6rem}
+.sub.left{text-align:left;max-width:none;margin:0 0 .8rem;font-size:.85rem}
+.okmsg{color:#0d8f45}
+.legalp{max-width:680px;margin:0 auto;padding:1.2rem 1rem 3rem}
+.legal h2{font-size:1.05rem;margin:1.4rem 0 .4rem}
+.legal p,.legal li{font-size:.9rem;line-height:1.6}
+.legal ul{padding-left:1.2rem;margin:.3rem 0}
+.legal .upd{color:var(--mut);font-size:.8rem}
+.legal .note{margin-top:1.6rem;padding:.7rem;border:3px dashed var(--ink);background:#FFF1B8;font-size:.8rem}
+a.btn{text-decoration:none;text-align:center}

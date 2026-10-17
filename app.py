@@ -1,4 +1,4 @@
-import os, re, json, time, base64, hashlib, secrets, string
+import os, re, json, time, base64, hashlib, secrets, string, threading
 from datetime import datetime, timedelta
 from functools import wraps
 import bcrypt
@@ -8,8 +8,9 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
-from security import apply_headers, Limiter, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, Story, Room, RoomMember, Call, init_db
+import mailer, push
+from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -40,7 +41,8 @@ EXT_OK = {"mp4", "mov", "webm", "m4v", "3gp", "mkv", "jpg", "jpeg", "png", "webp
 ONLINE_SEC = 25
 VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") if x.strip()}  # ID yang dapat centang biru
 ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
-PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "style.css", "script.js", "logo.png", "login.mp4", "intro.mp4"}
+PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "forgot.html", "reset.html", "verify.html", "terms.html", "privacy.html",
+                "style.css", "script.js", "sw.js", "manifest.json", "icon-192.png", "icon-512.png", "logo.png", "login.mp4", "intro.mp4"}
 
 
 def new_pid(db):
@@ -105,9 +107,6 @@ def is_verified(u):
     return u.player_id == OFFICIAL or is_owner(u) or u.id == _cache["first"] or u.player_id in VERIFIED
 
 
-RL = Limiter()
-
-
 def client_ip():
     return (request.headers.get("x-real-ip") or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or request.remote_addr or "?")[:45]
 
@@ -123,6 +122,14 @@ def note_hit(db, key):
     if secrets.randbelow(40) == 0:  # sesekali buang catatan lama
         db.query(RateHit).filter(RateHit.ts < datetime.utcnow() - timedelta(days=1)).delete(synchronize_session=False)
         db.commit()
+
+
+def rl(db, key, limit, secs):
+    """Pembatas laju berbasis database (berlaku lintas instance). True = boleh, False = sudah melewati batas."""
+    if too_many(db, key, limit, secs):
+        return False
+    note_hit(db, key)
+    return True
 
 
 def tokver(u):
@@ -182,7 +189,12 @@ def ensure_official():
 ensure_official()
 
 
-EMPTY = {"avatar": "", "status": "", "cover": "", "public": True, "show_seen": True, "last_seen": None}
+EMPTY = {"avatar": "", "status": "", "cover": "", "public": True, "show_seen": True, "last_seen": None, "story_vis": "all", "seen_vis": "all", "email_ok": False}
+
+
+def vis_ok(vis, owner, viewer, mutual):
+    """Apakah `viewer` (yang menyimpan ID `owner`) boleh melihat. mutual = pemilik juga menyimpan viewer."""
+    return vis == "all" or (vis == "mutual" and (owner, viewer) in mutual)
 
 
 def prof(db, ids):
@@ -192,6 +204,13 @@ def prof(db, ids):
     for e in db.query(ProfileExt).filter(ProfileExt.player_id.in_(ids)):
         out[e.player_id].update(cover=e.cover or "", public=e.public is not False,
                                 show_seen=e.show_seen is not False, last_seen=e.last_seen)
+    for x in db.query(EmailOk).filter(EmailOk.player_id.in_(ids)):
+        out[x.player_id]["email_ok"] = True
+    pp = {x.player_id: x for x in db.query(PrivPref).filter(PrivPref.player_id.in_(ids))}
+    for i, d in out.items():
+        x = pp.get(i)
+        d["story_vis"] = (x.story_vis if x and x.story_vis in ("all", "mutual", "none") else "all")
+        d["seen_vis"] = (x.seen_vis if x and x.seen_vis in ("all", "mutual", "none") else ("all" if d["show_seen"] else "none"))
     return out
 
 
@@ -202,7 +221,7 @@ def pub(u, pr, mine=False):
         o.pop("birth_year", None)  # tahun lahir hanya terlihat oleh pemilik akun
     if mine:
         o.update(avatar=d["avatar"], status=d["status"], cover=d["cover"], public=d["public"],
-                 show_seen=d["show_seen"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL, cld=bool(cld_conf()))
+                 show_seen=d["show_seen"], story_vis=d["story_vis"], seen_vis=d["seen_vis"], mail=mailer.mail_ready(), email_verified=d["email_ok"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL, cld=bool(cld_conf()))
     elif d["public"]:  # profil privat: foto & status disembunyikan dari orang lain
         o.update(avatar=d["avatar"], status=d["status"])
     else:
@@ -245,6 +264,8 @@ def register():
         year = 0
     if not name or "@" not in email or len(email) > 120 or len(name) > 60 or not 1900 <= year <= time.gmtime().tm_year:
         return jsonify(error="Data tidak valid."), 400
+    if not d.get("agree"):
+        return jsonify(error="Setujui Syarat dan Kebijakan Privasi dulu."), 400
     bad = pw_problem(pw, name, email)
     if bad:
         return jsonify(error=bad), 400
@@ -261,7 +282,8 @@ def register():
             db.add(u)
             try:
                 db.commit()
-                return jsonify(token=make_token(u), user=u.public()), 201
+                sent = send_verify(u)
+                return jsonify(token=make_token(u), user=u.public(), verify_sent=sent), 201
             except IntegrityError:
                 db.rollback()
         return jsonify(error="Gagal membuat akun, coba lagi."), 500
@@ -336,7 +358,7 @@ def contacts(db, u):
 @app.post("/api/contacts")
 @authed
 def add_contact(db, u):
-    if not RL.hit("add:" + u.player_id, 30, 600):
+    if not rl(db, "add:" + u.player_id, 30, 600):
         return jsonify(error="Terlalu banyak pencarian ID. Tunggu sebentar."), 429
     pid = ((request.get_json(silent=True) or {}).get("player_id") or "").strip().upper()
     t = db.query(User).filter_by(player_id=pid).first()
@@ -355,7 +377,7 @@ def add_contact(db, u):
 def send(db, u):
     d = request.get_json(silent=True) or {}
     kind = "sig" if d.get("kind") == "sig" else "text"
-    if not RL.hit("send:" + u.player_id, 400 if kind == "sig" else 60, 60):
+    if not rl(db, "send:" + u.player_id, 400 if kind == "sig" else 60, 60):
         return jsonify(error="Terlalu cepat. Pelan-pelan ya."), 429
     body, to = (d.get("body") or "")[:20000 if kind == "sig" else 4000], d.get("to") or ""
     if kind == "text":
@@ -373,6 +395,18 @@ def send(db, u):
             return jsonify(error="Foto/video tidak valid."), 400
         if med.once and to.startswith("R-"):
             return jsonify(error="Sekali lihat hanya untuk chat pribadi."), 400
+    if kind == "sig":
+        try:
+            sig_type = (json.loads(body) or {}).get("type")
+        except (ValueError, AttributeError):
+            sig_type = None
+        if sig_type == "offer":
+            if to == OFFICIAL or to.startswith("R-"):
+                return jsonify(error="Panggilan hanya ke pengguna."), 400
+            if not db.query(Contact.id).filter_by(owner=to, contact_pid=u.player_id).first():
+                return jsonify(error="Hanya kontak yang bisa menelepon. Minta dia menyimpan ID-mu dulu."), 403
+            if not rl(db, "call:" + u.player_id, 12, 600):
+                return jsonify(error="Terlalu sering menelepon. Tunggu sebentar."), 429
     if kind == "text" and to == OFFICIAL:
         return jsonify(error="Akun resmi hanya mengirim pengumuman."), 400
     if kind == "text" and to.startswith("R-") and to[2:].isdigit():
@@ -391,6 +425,10 @@ def send(db, u):
     m = Message(sender=u.player_id, to_id=to, kind=kind, body=enc(body) if kind == "text" else body)
     db.add(m)
     db.commit()
+    try:
+        notify(db, u, to, kind, body)
+    except Exception as e:  # notifikasi tidak boleh menggagalkan pengiriman pesan
+        print("notify gagal:", e)
     return jsonify(m.public())
 
 
@@ -455,7 +493,7 @@ def sweep_once(db):
 @app.post("/api/media/new")
 @authed
 def media_new(db, u):
-    if not RL.hit("med:" + u.player_id, 20, 600):
+    if not rl(db, "med:" + u.player_id, 20, 600):
         return jsonify(error="Terlalu banyak unggahan. Tunggu sebentar."), 429
     d = request.get_json(silent=True) or {}
     kind, cfg = ("video" if d.get("kind") == "video" else "image"), cld_conf()
@@ -573,7 +611,7 @@ def media_done(db, u, mid):
 @app.post("/api/stickers")
 @authed
 def sticker_up(db, u):
-    if not RL.hit("stk:" + u.player_id, 40, 600):
+    if not rl(db, "stk:" + u.player_id, 40, 600):
         return jsonify(error="Terlalu banyak unggahan stiker. Tunggu sebentar."), 429
     d = (request.get_json(silent=True) or {}).get("data") or ""
     if len(d) > 120000 or not STK_DATA.match(d):
@@ -592,12 +630,17 @@ def purge_room(db, rid):
 
 
 def purge_user(db, pid):
+    for m in db.query(Media).filter(Media.owner == pid, Media.provider == "cld").limit(15).all():
+        cld_destroy(m)  # hapus juga berkas di Cloudinary (maks 15 sekali jalan)
     for r in db.query(Room).filter_by(owner=pid).all():
         purge_room(db, r.id)
     for M, col in ID_COLS:
         c = getattr(M, col)
         db.query(M).filter(c == pid).delete(synchronize_session=False)
-    db.query(UserFlag).filter(UserFlag.player_id == pid).delete(synchronize_session=False)
+    for M, col in ((UserFlag, "player_id"), (EmailOk, "player_id"), (PrivPref, "player_id"), (PushSub, "player_id"), (PwChange, "player_id"),
+                   (Block, "owner"), (Block, "target"), (Report, "reporter")):
+        c = getattr(M, col)
+        db.query(M).filter(c == pid).delete(synchronize_session=False)
     # User sudah terhapus lewat ID_COLS (User.player_id)
 
 
@@ -854,12 +897,318 @@ def profile_post(db, u):
         e.public = bool(d["public"])
     if "show_seen" in d:
         e.show_seen = bool(d["show_seen"])
+    if d.get("story_vis") in ("all", "mutual", "none") or d.get("seen_vis") in ("all", "mutual", "none"):
+        pr = db.get(PrivPref, u.player_id) or PrivPref(player_id=u.player_id, story_vis="all", seen_vis="all")
+        db.add(pr)
+        if d.get("story_vis") in ("all", "mutual", "none"):
+            pr.story_vis = d["story_vis"]
+        if d.get("seen_vis") in ("all", "mutual", "none"):
+            pr.seen_vis = d["seen_vis"]
+            e.show_seen = d["seen_vis"] != "none"
     db.commit()
     return jsonify(user=pub(u, prof(db, [u.player_id]), True))
 
 
 def blocked_list(db, pid):
     return [b.target for b in db.query(Block).filter_by(owner=pid)]
+
+
+def public_url():
+    base = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    prod = os.getenv("VERCEL_PROJECT_PRODUCTION_URL", "").strip()
+    return ("https://" + prod) if prod else request.host_url.rstrip("/")
+
+
+def fire(fn, *a, wait=3.0):
+    """Jalankan pekerjaan jaringan (email/push) di latar belakang, tunggu sebentar saja supaya respons tetap cepat."""
+    t = threading.Thread(target=fn, args=a, daemon=True)
+    t.start()
+    t.join(wait)
+
+
+def vtoken(u):
+    return ser.dumps([u.id, hashlib.sha256(u.email.encode()).hexdigest()[:8]], salt="verify")
+
+
+def send_verify(u):
+    if not mailer.mail_ready():
+        return False
+    link = "%s/verify.html?t=%s" % (public_url(), vtoken(u))
+    fire(mailer.send_mail, u.email, "Verifikasi email NOVA WAWA",
+         "Halo %s,\n\nTap tautan ini untuk memverifikasi emailmu (berlaku 3 hari):\n%s\n\nKalau bukan kamu yang mendaftar, abaikan email ini.\n" % (u.full_name, link))
+    return True
+
+
+@app.post("/api/email/verify")
+def email_verify():
+    tok = (request.get_json(silent=True) or {}).get("token") or ""
+    try:
+        uid, h = ser.loads(tok, salt="verify", max_age=3 * 86400)
+    except (BadSignature, SignatureExpired, TypeError, ValueError):
+        return jsonify(error="Tautan tidak valid atau sudah kedaluwarsa."), 400
+    with Session() as db:
+        u = db.get(User, uid)
+        if not u or hashlib.sha256(u.email.encode()).hexdigest()[:8] != h:
+            return jsonify(error="Tautan tidak valid."), 400
+        if not db.get(EmailOk, u.player_id):
+            db.add(EmailOk(player_id=u.player_id, at=datetime.utcnow()))
+            db.commit()
+        return jsonify(ok=True)
+
+
+@app.post("/api/email/resend")
+@authed
+def email_resend(db, u):
+    if db.get(EmailOk, u.player_id):
+        return jsonify(error="Emailmu sudah terverifikasi."), 400
+    if not mailer.mail_ready():
+        return jsonify(error="Pengiriman email belum diaktifkan oleh owner."), 503
+    if not rl(db, "V:" + u.player_id, 3, 3600):
+        return jsonify(error="Terlalu sering. Coba lagi nanti."), 429
+    send_verify(u)
+    return jsonify(ok=True)
+
+
+@app.post("/api/forgot")
+def forgot():
+    email, ip = ((request.get_json(silent=True) or {}).get("email") or "").strip().lower()[:120], client_ip()
+    if not mailer.mail_ready():
+        return jsonify(error="Pemulihan lewat email belum diaktifkan. Hubungi owner NOVA WAWA."), 503
+    with Session() as db:
+        if too_many(db, "F:ip:" + ip, 6, 3600) or too_many(db, "F:em:" + email, 3, 3600):
+            return jsonify(error="Terlalu banyak permintaan. Coba lagi nanti."), 429
+        note_hit(db, "F:ip:" + ip)
+        note_hit(db, "F:em:" + email)
+        u = db.query(User).filter_by(email=email).first()
+        if u and u.player_id != OFFICIAL and u.player_id not in flags(db)["banned"]:
+            link = "%s/reset.html?t=%s" % (public_url(), ser.dumps([u.id, tokver(u)], salt="reset"))
+            fire(mailer.send_mail, u.email, "Atur ulang password NOVA WAWA",
+                 "Halo %s,\n\nTap tautan ini untuk membuat password baru (berlaku 1 jam, hanya sekali pakai):\n%s\n\nKalau bukan kamu yang meminta, abaikan email ini. Passwordmu tidak berubah.\n" % (u.full_name, link))
+        return jsonify(ok=True)  # jawaban sama untuk email terdaftar maupun tidak (mencegah menebak email)
+
+
+@app.post("/api/reset")
+def reset_password():
+    d, ip = request.get_json(silent=True) or {}, client_ip()
+    with Session() as db:
+        if not rl(db, "X:ip:" + ip, 15, 3600):
+            return jsonify(error="Terlalu banyak percobaan. Coba lagi nanti."), 429
+        try:
+            uid, tv = ser.loads(d.get("token") or "", salt="reset", max_age=3600)
+        except (BadSignature, SignatureExpired, TypeError, ValueError):
+            return jsonify(error="Tautan tidak valid atau sudah kedaluwarsa. Minta tautan baru."), 400
+        u = db.get(User, uid)
+        if not u or tokver(u) != tv or u.player_id == OFFICIAL:
+            return jsonify(error="Tautan sudah dipakai atau tidak valid. Minta tautan baru."), 400
+        new = d.get("password") or ""
+        bad = pw_problem(new, u.full_name, u.email)
+        if bad:
+            return jsonify(error=bad), 400
+        u.password_hash = bcrypt.hashpw(new.encode(), bcrypt.gensalt()).decode()
+        ch = db.get(PwChange, u.player_id) or PwChange(player_id=u.player_id)
+        ch.at = datetime.utcnow()
+        db.add(ch)
+        if not db.get(EmailOk, u.player_id):  # tautan sampai ke emailnya, berarti email terbukti miliknya
+            db.add(EmailOk(player_id=u.player_id, at=datetime.utcnow()))
+        db.commit()
+        _cache["t"] = 0.0
+        return jsonify(ok=True)
+
+
+def vapid(db):
+    if not push.READY:
+        return None
+    if _cache.get("vapid"):
+        return _cache["vapid"]
+    row = db.get(AppSetting, "vapid")
+    if row and row.value:
+        k = json.loads(row.value)
+    else:
+        pr, pb = push.new_vapid()
+        k = {"priv": pr, "pub": pb}
+        db.add(AppSetting(key="vapid", value=json.dumps(k)))
+        db.commit()
+    _cache["vapid"] = k
+    return k
+
+
+def preview(body):
+    if STK_RE.match(body or ""):
+        return "Stiker"
+    mm = MED_RE.match(body or "")
+    if mm:
+        return ("Video" if mm.group(1) == "v" else "Foto") + (" sekali lihat" if mm.group(2) else "")
+    return (body or "")[:120]
+
+
+def notify(db, u, to, kind, body):
+    """Kirim notifikasi push ke penerima yang sedang tidak membuka aplikasi."""
+    k = vapid(db)
+    if not k:
+        return
+    if to.startswith("R-") and to[2:].isdigit():
+        r = db.get(Room, int(to[2:]))
+        if not r:
+            return
+        targets, title, url = [m.player_id for m in db.query(RoomMember).filter_by(room_id=r.id) if m.player_id != u.player_id], r.name, to
+    else:
+        targets, title, url = [to], u.full_name, u.player_id
+    if kind == "sig":
+        try:
+            sg = json.loads(body)
+        except ValueError:
+            return
+        if sg.get("type") != "offer":
+            return
+        text, tag = ("Panggilan video masuk" if (sg.get("data") or {}).get("video") else "Panggilan suara masuk"), "call"
+    else:
+        text, tag = preview(body), "chat-" + url
+        if to.startswith("R-"):
+            text = u.full_name + ": " + text
+    if not targets:
+        return
+    blocked = {b.owner for b in db.query(Block).filter(Block.target == u.player_id, Block.owner.in_(targets))}
+    cut = datetime.utcnow() - timedelta(seconds=20)
+    active = {e.player_id for e in db.query(ProfileExt).filter(ProfileExt.player_id.in_(targets), ProfileExt.last_seen > cut)}
+    targets = [t for t in targets if t not in blocked and t not in active]
+    if not targets:
+        return
+    subs = [{"endpoint": x.endpoint, "p256dh": x.p256dh, "auth": x.auth} for x in db.query(PushSub).filter(PushSub.player_id.in_(targets)).limit(200)]
+    if not subs:
+        return
+    payload = {"title": title[:60], "body": text, "url": "/dashboard.html#chat=" + url, "tag": tag}
+    subject = os.getenv("VAPID_SUBJECT", "").strip() or public_url()
+    dead, threads = [], []
+
+    def work(sub):
+        if push.send_push(sub, payload, k["priv"], k["pub"], subject) == "gone":
+            dead.append(sub["endpoint"])
+    for sub in subs:
+        t = threading.Thread(target=work, args=(sub,), daemon=True)
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join(2.5)
+    if dead:
+        db.query(PushSub).filter(PushSub.endpoint.in_(dead)).delete(synchronize_session=False)
+        db.commit()
+
+
+@app.get("/api/push/key")
+@authed
+def push_key(db, u):
+    k = vapid(db)
+    return (jsonify(key=k["pub"]) if k else (jsonify(error="Notifikasi belum didukung server."), 503))
+
+
+@app.post("/api/push/subscribe")
+@authed
+def push_subscribe(db, u):
+    d = request.get_json(silent=True) or {}
+    ep, ks = d.get("endpoint") or "", d.get("keys") or {}
+    p256, au = ks.get("p256dh") or "", ks.get("auth") or ""
+    if not push.host_ok(ep) or not (80 <= len(p256) <= 100) or not (16 <= len(au) <= 40):
+        return jsonify(error="Langganan notifikasi tidak valid."), 400
+    row = db.query(PushSub).filter_by(endpoint=ep).first()
+    if row:
+        row.player_id, row.p256dh, row.auth = u.player_id, p256, au
+    else:
+        old = db.query(PushSub).filter_by(player_id=u.player_id).order_by(PushSub.id).all()
+        for x in old[:max(0, len(old) - 4)]:  # simpan maksimal 5 perangkat
+            db.delete(x)
+        db.add(PushSub(player_id=u.player_id, endpoint=ep, p256dh=p256, auth=au))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/push/unsubscribe")
+@authed
+def push_unsubscribe(db, u):
+    ep = (request.get_json(silent=True) or {}).get("endpoint") or ""
+    db.query(PushSub).filter(PushSub.endpoint == ep, PushSub.player_id == u.player_id).delete(synchronize_session=False)
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/push/test")
+@authed
+def push_test(db, u):
+    k = vapid(db)
+    subs = [{"endpoint": x.endpoint, "p256dh": x.p256dh, "auth": x.auth} for x in db.query(PushSub).filter_by(player_id=u.player_id)]
+    if not k or not subs:
+        return jsonify(error="Notifikasi belum aktif di perangkat ini."), 400
+    res = [push.send_push(s_, {"title": "NOVA WAWA", "body": "Notifikasi berhasil diaktifkan.", "url": "/dashboard.html", "tag": "test"}, k["priv"], k["pub"], public_url()) for s_ in subs]
+    return jsonify(ok="ok" in res, results=res)
+
+
+REASONS = {"spam", "pelecehan", "penipuan", "tidak_pantas", "lainnya"}
+
+
+@app.post("/api/reports")
+@authed
+def report_post(db, u):
+    d = request.get_json(silent=True) or {}
+    target, reason = str(d.get("target") or "").strip().upper(), d.get("reason")
+    if reason not in REASONS or target in (u.player_id, OFFICIAL) or not db.query(User.id).filter_by(player_id=target).first():
+        return jsonify(error="Laporan tidak valid."), 400
+    if not rl(db, "report:" + u.player_id, 10, 86400):
+        return jsonify(error="Batas laporan harian tercapai."), 429
+    db.add(Report(reporter=u.player_id, target=target, reason=reason, detail=clean(d.get("detail"), 300)))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.get("/api/admin/reports")
+@owner_only
+def adm_reports(db, u):
+    st = request.args.get("status") or "baru"
+    rows = db.query(Report).filter(Report.status == st).order_by(Report.id.desc()).limit(60).all()
+    ids = list({x for r in rows for x in (r.reporter, r.target)})
+    names = {x.player_id: x.full_name for x in db.query(User).filter(User.player_id.in_(ids))} if ids else {}
+    total = {t: n for t, n in db.query(Report.target, func.count(Report.id)).group_by(Report.target)} if rows else {}
+    return jsonify(reports=[{"id": r.id, "reporter": r.reporter, "reporter_name": names.get(r.reporter, r.reporter), "target": r.target,
+                             "target_name": names.get(r.target, r.target), "reason": r.reason, "detail": r.detail or "",
+                             "t": iso(r.created_at), "count": total.get(r.target, 1), "blocked": r.target in _cache["banned"]} for r in rows])
+
+
+@app.post("/api/admin/reports/<int:rid>")
+@owner_only
+def adm_report_set(db, u, rid):
+    r = db.get(Report, rid)
+    if not r:
+        return jsonify(error="Tidak ditemukan."), 404
+    r.status = "selesai" if (request.get_json(silent=True) or {}).get("status") == "selesai" else "diabaikan"
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/account/delete")
+@authed
+def account_delete(db, u):
+    if is_owner(u):
+        return jsonify(error="Akun owner tidak bisa dihapus dari sini."), 400
+    if too_many(db, "D:" + u.player_id, 5, 3600):
+        return jsonify(error="Terlalu banyak percobaan. Coba lagi nanti."), 429
+    try:
+        ok = bcrypt.checkpw(((request.get_json(silent=True) or {}).get("password") or "").encode()[:72], u.password_hash.encode())
+    except ValueError:
+        ok = False
+    if not ok:
+        note_hit(db, "D:" + u.player_id)
+        return jsonify(error="Password salah."), 400
+    purge_user(db, u.player_id)
+    db.commit()
+    _cache["t"] = 0.0
+    return jsonify(ok=True)
+
+
+@app.get("/api/health")
+def health():
+    with Session() as db:
+        db.query(func.count(User.id)).scalar()
+    return jsonify(ok=True, t=int(time.time()))
 
 
 @app.get("/api/blocks")
@@ -891,8 +1240,9 @@ def presence(db, u):
     """Status online / terakhir dilihat teman yang tersimpan (hanya yang mengizinkan)."""
     ids = [c.contact_pid for c in db.query(Contact).filter_by(owner=u.player_id)]
     now, out = datetime.utcnow(), {}
+    mu = {(c.owner, c.contact_pid) for c in db.query(Contact).filter(Contact.contact_pid == u.player_id, Contact.owner.in_(ids))} if ids else set()
     for pid, d in prof(db, ids).items():
-        if d["show_seen"] and d["last_seen"]:
+        if d["last_seen"] and vis_ok(d["seen_vis"], pid, u.player_id, mu):
             out[pid] = {"online": (now - d["last_seen"]).total_seconds() < ONLINE_SEC,
                         "seen": d["last_seen"].isoformat() + "Z"}
     return jsonify(presence=out, announce=_cache["announce"] or ANNOUNCE)
@@ -922,7 +1272,9 @@ def chats(db, u):
 @app.get("/api/stories")
 @authed
 def stories_get(db, u):
-    ids = [u.player_id] + [c.contact_pid for c in db.query(Contact).filter_by(owner=u.player_id)]
+    mine = [c.contact_pid for c in db.query(Contact).filter_by(owner=u.player_id)]
+    pv, mu = prof(db, mine), {(c.owner, c.contact_pid) for c in db.query(Contact).filter(Contact.contact_pid == u.player_id, Contact.owner.in_(mine))} if mine else set()
+    ids = [u.player_id] + [p for p in mine if vis_ok(pv[p]["story_vis"], p, u.player_id, mu)]
     cut = datetime.utcnow() - timedelta(hours=24)
     rows = db.query(Story).filter(Story.owner.in_(ids), Story.created_at > cut).order_by(Story.id).all()
     return jsonify(stories=[{"id": s.id, "owner": s.owner, "kind": s.kind, "body": s.body,
@@ -958,19 +1310,33 @@ def rooms_get(db, u):
                           for r in db.query(Room).order_by(Room.id.desc()) if r.kind == "channel" or r.id in mine])
 
 
+def clean(t, n):
+    return re.sub(r"[\x00-\x1f\x7f]", "", (t or "")).strip()[:n]
+
+
 @app.post("/api/rooms")
 @authed
 def rooms_post(db, u):
     d = request.get_json(silent=True) or {}
-    kind, name = ("channel" if d.get("kind") == "channel" else "group"), (d.get("name") or "").strip()[:60]
+    kind, name = ("channel" if d.get("kind") == "channel" else "group"), clean(d.get("name"), 60)
     if not name:
         return jsonify(error="Nama wajib diisi."), 400
-    r = Room(kind=kind, name=name, about=(d.get("about") or "")[:200], owner=u.player_id)
+    if not rl(db, "room:" + u.player_id, 10, 3600):
+        return jsonify(error="Terlalu banyak membuat grup/saluran. Coba lagi nanti."), 429
+    if db.query(func.count(Room.id)).filter(Room.owner == u.player_id).scalar() >= 30:
+        return jsonify(error="Batas 30 grup/saluran per akun tercapai."), 400
+    raw = d.get("members") or []
+    if not isinstance(raw, list) or len(raw) > 255:
+        return jsonify(error="Anggota maksimal 255 orang."), 400
+    r = Room(kind=kind, name=name, about=clean(d.get("about"), 200), owner=u.player_id)
     db.add(r)
     db.flush()
     ids = {u.player_id}
     if kind == "group":
-        ids |= {x for x in (d.get("members") or []) if db.query(User.id).filter_by(player_id=x).first()}
+        want = {str(x).strip().upper() for x in raw if isinstance(x, (str, int))}
+        found = {x.player_id for x in db.query(User).filter(User.player_id.in_(list(want)))} if want else set()
+        nope = {b.owner for b in db.query(Block).filter(Block.target == u.player_id, Block.owner.in_(list(found)))} if found else set()
+        ids |= (found - nope - {OFFICIAL})  # yang memblokirmu tidak ikut ditambahkan
     for p in ids:
         db.add(RoomMember(room_id=r.id, player_id=p))
     db.commit()
@@ -980,6 +1346,8 @@ def rooms_post(db, u):
 @app.post("/api/rooms/<int:rid>/join")
 @authed
 def rooms_join(db, u, rid):
+    if not rl(db, "join:" + u.player_id, 40, 3600):
+        return jsonify(error="Terlalu banyak. Coba lagi nanti."), 429
     r = db.get(Room, rid)
     if not r or r.kind != "channel":
         return jsonify(error="Saluran tidak ditemukan."), 404
@@ -1007,7 +1375,13 @@ def home():
 @app.get("/<path:f>")
 def static_files(f):
     if f in PUBLIC_FILES:
-        return send_from_directory(BASE, f)
+        r = send_from_directory(BASE, f)
+        if f == "sw.js":
+            r.headers["Cache-Control"] = "no-cache"
+            r.headers["Service-Worker-Allowed"] = "/"
+        elif f == "manifest.json":
+            r.mimetype = "application/manifest+json"
+        return r
     return "Not found", 404
 
 

@@ -4,6 +4,7 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#FFD93D">
 <title>NOVA WAWA</title>
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -95,21 +96,29 @@
     </div>
     <div class="card2 sw"><svg class="ic lead"><use href="#i-globe"/></svg><span><b>Profil Publik</b><small>Siapa pun bisa melihat foto dan statusmu</small></span><button id="swpub" class="swb" role="switch" aria-checked="true" aria-label="Profil publik"></button></div>
     <p class="lab">PRIVASI</p>
-    <div class="card2 sw"><svg class="ic lead"><use href="#i-clock"/></svg><span><b>Tampilkan Terakhir Dilihat</b><small>Orang lain bisa lihat kapan kamu terakhir online</small></span><button id="swseen" class="swb" role="switch" aria-checked="true" aria-label="Terakhir dilihat"></button></div>
-    <button id="admbtn" class="card2 setr" hidden><svg class="ic lead"><use href="#i-lock"/></svg><span><b>Panel Owner</b><small>Kelola pengguna, banner, dan pengumuman</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="storybtn" class="card2 setr"><svg class="ic lead"><use href="#i-story"/></svg><span><b>Siapa yang bisa melihat story-ku</b><small id="storysub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="seenbtn" class="card2 setr"><svg class="ic lead"><use href="#i-clock"/></svg><span><b>Terakhir dilihat dan status online</b><small id="seensub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="swseen" class="swb" role="switch" aria-checked="true" aria-label="Terakhir dilihat" hidden></button>
+    <button id="admbtn" class="card2 setr" hidden><svg class="ic lead"><use href="#i-lock"/></svg><span><b>Panel Owner</b><small>Kelola pengguna, banner, laporan, dan pengumuman</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <p class="lab">AKUN</p>
     <button id="pphoto" class="card2 setr"><svg class="ic lead"><use href="#i-camera"/></svg><span><b>Ganti foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="pdel" class="card2 setr"><svg class="ic lead"><use href="#i-trash"/></svg><span><b>Hapus foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="copy" class="card2 setr"><svg class="ic lead"><use href="#i-copy"/></svg><span><b>Salin ID</b><small id="copysub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="lockbtn" class="card2 setr"><svg class="ic lead"><use href="#i-fp"/></svg><span><b>Kunci aplikasi</b><small></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="pushbtn" class="card2 setr"><svg class="ic lead"><use href="#i-channel"/></svg><span><b>Notifikasi</b><small id="pushsub">Memeriksa...</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="verifybtn" class="card2 setr" hidden><svg class="ic lead"><use href="#i-check"/></svg><span><b>Verifikasi email</b><small>Kirim tautan verifikasi ke emailmu</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="pwbtn" class="card2 setr"><svg class="ic lead"><use href="#i-lock"/></svg><span><b>Ubah password</b><small>Ganti password-mu kapan saja</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="blkbtn" class="card2 setr"><svg class="ic lead"><use href="#i-x"/></svg><span><b>Pengguna diblokir</b><small>Lihat dan buka blokir</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="legalbtn" class="card2 setr"><svg class="ic lead"><use href="#i-copy"/></svg><span><b>Syarat dan Privasi</b><small>Baca aturan dan kebijakan data</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="delbtn" class="card2 setr out"><svg class="ic lead"><use href="#i-trash"/></svg><span><b>Hapus akun</b><small>Hapus permanen akun dan semua datamu</small></span></button>
     <button id="logout" class="card2 setr out"><svg class="ic lead"><use href="#i-logout"/></svg><span><b>Logout</b></span></button>
   </section>
   <section id="admin" hidden>
     <p class="hint l">Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server.</p>
     <h2 class="sec">Keamanan</h2>
     <ul id="asec" class="list"></ul>
+    <h2 class="sec">Laporan pengguna</h2>
+    <ul id="areports" class="list"></ul>
     <h2 class="sec">Statistik</h2>
     <div id="astats" class="astats"></div>
     <h2 class="sec">Banner pengumuman</h2>

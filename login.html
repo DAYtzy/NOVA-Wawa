@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Masuk - NOVA WAWA</title>
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -20,6 +21,7 @@
       <label>Email<input type="email" name="email" required autocomplete="email"></label>
       <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
       <button class="btn" type="submit">Masuk</button>
+      <a href="forgot.html" class="link">Lupa password?</a>
     </form>
 
     <form id="register-form" hidden>
@@ -27,10 +29,12 @@
       <label>Tahun Lahir<input type="number" name="birth_year" min="1900" max="2026" placeholder="2000" required></label>
       <label>Email<input type="email" name="email" required autocomplete="email"></label>
       <label>Password (min. 8 karakter)<input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
+      <label class="chk"><input type="checkbox" name="agree" required><span>Saya setuju dengan <a href="terms.html" target="_blank" rel="noopener">Syarat Penggunaan</a> dan <a href="privacy.html" target="_blank" rel="noopener">Kebijakan Privasi</a>.</span></label>
       <button class="btn" type="submit">Buat akun</button>
     </form>
   </section>
   <a href="index.html" class="link">Kembali</a>
+  <p class="legal-links"><a href="terms.html">Syarat</a> · <a href="privacy.html">Privasi</a></p>
 </main>
 <script src="script.js"></script>
 </body>
