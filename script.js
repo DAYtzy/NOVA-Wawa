@@ -155,7 +155,7 @@ async function initDashboard() {
   const tm = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const short = (t) => (new Date(t).toDateString() === new Date().toDateString() ? tm(t) : new Date(t).toLocaleDateString([], { day: "numeric", month: "short" }));
   const hasStory = (p) => st.stories.some((s) => s.owner === p);
-  const send = (to, kind, body) => api("/send", { method: "POST", body: JSON.stringify({ to, kind, body }) });
+  const send = (to, kind, body, reply) => api("/send", { method: "POST", body: JSON.stringify(reply ? { to, kind, body, reply } : { to, kind, body }) });
   const chAv = (k, img, nm) => { const g = safeImg(img); if (g) return av(nm || "?", g); const e = mk("div", null, "av ico " + k); e.append(ic(k === "group" ? "users" : "channel")); return e; };
   const row = (img, name, sub, onclick, o = {}) => {
     const li = mk("li", null, "item"), box = mk("div", null, "txt"), w = mk("div", null, "avw");
@@ -302,22 +302,100 @@ async function initDashboard() {
     el.className = s && s.online ? "on" : "";
     el.textContent = s ? (s.online ? "online" : "terakhir dilihat " + fmt(s.seen)) : st.cur;
   }
+  /* ----- balas pesan: kutipan di gelembung, bar balasan, menu tekan-lama, geser ke kanan ----- */
+  st.replyTo = null;
+  const whoName = (p) => (p === me.player_id ? "Kamu" : nameOf(p));
+  function quoteEl(rp) {
+    const q = mk("div", null, "quote");
+    if (rp.gone) { q.classList.add("gone"); q.append(mk("span", "Pesan tidak tersedia")); return q; }
+    q.append(mk("b", whoName(rp.sender)), mk("span", lastText(rp.body)));
+    q.onclick = (e) => { e.stopPropagation(); jumpTo(rp.id); };
+    return q;
+  }
+  function jumpTo(id) {
+    const el = $("#msgs").querySelector('.bub[data-id="' + Number(id) + '"]');
+    if (!el) return toast("Pesan aslinya ada di bagian yang lebih lama.");
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  function clearReply() { st.replyTo = null; const bar = $("#replybar"); bar.hidden = true; bar.replaceChildren(); }
+  function setReply(m) {
+    if (!m || !m.id) return toast("Pesan masih dikirim. Coba lagi sebentar.");
+    st.replyTo = { id: m.id, sender: m.sender, body: m.body };
+    const bar = $("#replybar"), rq = mk("div", null, "rq"), x = mk("button", null, "hb");
+    rq.append(mk("b", m.sender === me.player_id ? "Membalas pesanmu" : "Membalas " + nameOf(m.sender)), mk("span", lastText(m.body)));
+    x.type = "button"; x.setAttribute("aria-label", "Batalkan balasan"); x.append(ic("x")); x.onclick = clearReply;
+    bar.replaceChildren(rq, x); bar.hidden = false; $("#text").focus();
+  }
+  $("#text").addEventListener("keydown", (e) => { if (e.key === "Escape" && st.replyTo) clearReply(); });
+  let menuBusy = false;
+  async function bubbleMenu(d) {
+    const m = d._m; if (!m || menuBusy) return;
+    menuBusy = true;
+    try {
+      const plain = !stkId(m.body) && !medOf(m.body), acts = [];
+      if (!$("#form").hidden) acts.push({ key: "reply", label: "Balas" });
+      if (plain) acts.push({ key: "copy", label: "Salin teks" });
+      if (!acts.length) return;
+      const a = await dialog({ title: m.sender === me.player_id ? "Pesanmu" : nameOf(m.sender), desc: lastText(m.body).slice(0, 120), ok: null, actions: acts });
+      if (!a) return;
+      if (a.action === "reply") setReply(m);
+      else if (a.action === "copy") navigator.clipboard.writeText(m.body).then(() => toast("Teks disalin"), () => toast("Tidak bisa menyalin teks"));
+    } finally { menuBusy = false; }
+  }
+  function bubbleGestures(d) {
+    let sx = 0, sy = 0, dx = 0, pid = null, lp = null, eat = false;
+    const stopLp = () => { clearTimeout(lp); lp = null; };
+    d.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "mouse") return;  // komputer: menu lewat klik kanan, jadi seleksi teks pakai mouse tidak terganggu
+      sx = e.clientX; sy = e.clientY; dx = 0; pid = e.pointerId; eat = false;
+      stopLp(); lp = setTimeout(() => { lp = null; eat = true; pid = null; bubbleMenu(d); }, 520);  // tekan lama = menu
+    });
+    d.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== pid) return;
+      const mx = e.clientX - sx, my = e.clientY - sy;
+      if (Math.abs(mx) > 8 || Math.abs(my) > 8) stopLp();
+      if (mx > 12 && mx > Math.abs(my) * 1.5 && !$("#form").hidden) { d.classList.add("sw"); dx = Math.min(mx, 80); d.style.transform = "translateX(" + dx + "px)"; }  // geser ke kanan = balas
+    });
+    const end = () => {
+      stopLp(); pid = null;
+      const go = dx >= 60;
+      if (dx) { dx = 0; d.classList.remove("sw"); d.style.transform = ""; }
+      if (go) { eat = true; setReply(d._m); }
+      setTimeout(() => { eat = false; }, 350);
+    };
+    d.addEventListener("pointerup", end); d.addEventListener("pointercancel", end);
+    d.addEventListener("click", (e) => { if (eat) { e.stopPropagation(); e.preventDefault(); eat = false; } }, true);  // jangan buka foto/video setelah geser atau tekan-lama
+    d.addEventListener("contextmenu", (e) => { e.preventDefault(); bubbleMenu(d); });  // klik kanan di komputer
+    const prevTab = $("#msgs").querySelector('.bub[tabindex="0"]'); if (prevTab) prevTab.tabIndex = -1;  // satu perhentian Tab saja untuk seluruh daftar pesan
+    d.tabIndex = 0;
+    d.addEventListener("keydown", (e) => {  // papan ketik: panah atas/bawah pindah pesan, Enter = menu
+      if (e.target !== d) return;
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bubbleMenu(d); }
+      else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        const n = e.key === "ArrowUp" ? d.previousElementSibling : d.nextElementSibling;
+        if (n && n.classList.contains("bub")) { e.preventDefault(); d.tabIndex = -1; n.tabIndex = 0; n.focus(); }
+      }
+    });
+  }
   function addMsg(m) {
     const mine = m.sender === me.player_id, key = isRoom(m.to) || mine ? m.to : m.sender;
     st.last[key] = m.body; st.lastT[key] = m.t;
     const r = roomOf(st.cur || ""), sid = stkId(m.body), md = medOf(m.body), d = mk("div", null, "bub " + (mine ? "out" : "in") + (sid ? " sticker" : "") + (md ? " media" : "")), box = mk("div"), mt = mk("div", null, "mt");
     if (!mine && r && r.kind === "group") box.append(mk("small", nameOf(m.sender), "who"));
+    if (m.reply) box.append(quoteEl(m.reply));
     if (sid) { const im = mk("img", null, "smsg"); im.src = m.local || "/api/stickers/" + sid; im.alt = "Stiker"; box.append(im); }
     else if (md) box.append(...mediaBox(m, md));
     else box.append(mk("span", m.body));
     mt.append(mk("time", tm(m.t)));
     if (mine) { d.dataset.to = m.to; d.dataset.t = m.t; mt.append(tick(m)); }
     d.append(box, mt);
+    d._m = m; if (m.id) d.dataset.id = m.id; bubbleGestures(d);
     $("#msgs").append(d); $("#msgs").scrollTop = 1e9;
     return d;
   }
   async function open(p) {
-    st.cur = p; st.unread[p] = 0;
+    clearReply(); st.cur = p; st.unread[p] = 0;
     const r = roomOf(p);
     $("#rtitle").textContent = nameOf(p);
     const ct = contact(p); if (ct && ct.owner) $("#rtitle").append(mk("i", "OWNER", "own")); if (p === OFFICIAL) $("#rtitle").append(mk("i", "RESMI", "own"));
@@ -336,10 +414,11 @@ async function initDashboard() {
     const v = $("#text").value.trim();
     if (!v || !st.cur) return;
     $("#text").value = ""; upd();
-    const to = st.cur, el = addMsg({ sender: me.player_id, to, kind: "text", body: v, t: new Date().toISOString(), pending: true });
+    const rp = st.replyTo; clearReply();
+    const to = st.cur, el = addMsg({ sender: me.player_id, to, kind: "text", body: v, t: new Date().toISOString(), pending: true, reply: rp ? { id: rp.id, sender: rp.sender, body: rp.body } : undefined });
     try {
-      const m = await send(to, "text", v);
-      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t;
+      const m = await send(to, "text", v, rp && rp.id);
+      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t; el.dataset.id = m.id; if (el._m) el._m.id = m.id;
       el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
     } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Pesan gagal terkirim: " + err.message); }
   };
@@ -368,7 +447,7 @@ async function initDashboard() {
       let m;
       try { m = await send(to, "text", body); }
       catch (e) { if (!/Stiker/.test(e.message)) throw e; await ensureSticker(src, true); m = await send(to, "text", body); }
-      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t;
+      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t; el.dataset.id = m.id; if (el._m) el._m.id = m.id;
       el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
     } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Stiker gagal terkirim: " + err.message); }
   }
@@ -724,7 +803,7 @@ async function initDashboard() {
       const body = "[med:" + tag + ":" + n.id + "]";
       if (story) { await api("/stories", { method: "POST", body: JSON.stringify({ kind: "vid", body }) }); await loadStories(); toast("Status diposting"); return; }
       const m = await send(to, "text", body);
-      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t;
+      st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t; el.dataset.id = m.id; if (el._m) el._m.id = m.id;
       el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m));
       const pr = el.querySelector(".mprog"); if (pr) pr.remove();
       const oc = el.querySelector(".once span"); if (oc) oc.textContent = (isV ? "Video" : "Foto") + " 1x lihat · belum dibuka";

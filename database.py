@@ -230,3 +230,9 @@ class RoomExt(Base):  # tabel baru (bukan ALTER) untuk foto grup/saluran
     __tablename__ = "room_ext"
     room_id = Column(Integer, primary_key=True)
     avatar = Column(Text, default="")
+
+
+class MsgReply(Base):  # pesan ini membalas pesan lain (tabel baru, bukan ALTER; kutipan dibuat server dari pesan aslinya)
+    __tablename__ = "msg_reply"
+    message_id = Column(Integer, primary_key=True)
+    reply_to = Column(Integer, nullable=False, index=True)

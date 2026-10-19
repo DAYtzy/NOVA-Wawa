@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, request, jsonify, send_from_directory, Response
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
 import mailer, push
 from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -408,6 +408,37 @@ def add_contact(db, u):
     return jsonify(contact=pub(t, prof(db, [t.player_id])))
 
 
+def same_convo(s1, t1, s2, t2):
+    """Dua pesan (pengirim, tujuan) berada di percakapan yang sama: grup yang sama, atau pasangan pribadi yang sama."""
+    if t1.startswith("R-") or t2.startswith("R-"):
+        return t1 == t2
+    return {s1, t1} == {s2, t2}
+
+
+def pub_msgs(db, rows, viewer):
+    """Message.public() ditambah `reply` (kutipan) untuk pesan yang membalas pesan lain.
+    Kutipan dibuat server dari pesan aslinya, jadi pengirim tidak bisa memalsukan isi kutipan."""
+    out = [m.public() for m in rows]
+    ids = [m.id for m in rows if m.kind == "text"]
+    if not ids:
+        return out
+    links = {x.message_id: x.reply_to for x in db.query(MsgReply).filter(MsgReply.message_id.in_(ids))}
+    if not links:
+        return out
+    orig = {o.id: o for o in db.query(Message).filter(Message.id.in_(list(set(links.values()))))}
+    bl = set(blocked_list(db, viewer))  # isi pesan orang yang kamu blokir tidak boleh bocor lewat kutipan
+    for m, d in zip(rows, out):
+        t = links.get(m.id)
+        if t is None:
+            continue
+        o = orig.get(t)
+        if not o or o.kind != "text" or o.sender in bl or not same_convo(o.sender, o.to_id, m.sender, m.to_id):
+            d["reply"] = {"id": t, "gone": True}
+        else:
+            d["reply"] = {"id": o.id, "sender": o.sender, "body": dec(o.body)[:140]}
+    return out
+
+
 @app.post("/api/send")
 @authed
 def send(db, u):
@@ -453,6 +484,13 @@ def send(db, u):
         ok = db.query(User.id).filter_by(player_id=to).first()
     if not body or not ok:
         return jsonify(error="Pesan tidak valid."), 400
+    reply_id = None
+    if kind == "text" and d.get("reply") is not None:
+        rv = d.get("reply")
+        o = db.get(Message, rv) if isinstance(rv, int) and not isinstance(rv, bool) and 0 < rv < 2**31 else None
+        if not o or o.kind != "text" or not same_convo(o.sender, o.to_id, u.player_id, to):
+            return jsonify(error="Pesan yang dibalas tidak valid."), 400
+        reply_id = o.id
     if kind == "sig":
         log_call(db, u.player_id, to, body)
     if med:
@@ -460,12 +498,15 @@ def send(db, u):
         med.to_id = to
     m = Message(sender=u.player_id, to_id=to, kind=kind, body=enc(body) if kind == "text" else body)
     db.add(m)
+    if reply_id:
+        db.flush()  # supaya m.id sudah ada
+        db.add(MsgReply(message_id=m.id, reply_to=reply_id))
     db.commit()
     try:
         notify(db, u, to, kind, body)
     except Exception as e:  # notifikasi tidak boleh menggagalkan pengiriman pesan
         print("notify gagal:", e)
-    return jsonify(m.public())
+    return jsonify(pub_msgs(db, [m], u.player_id)[0])
 
 
 def cld_conf():
@@ -660,6 +701,7 @@ def sticker_up(db, u):
 
 
 def purge_room(db, rid):
+    db.query(MsgReply).filter(MsgReply.message_id.in_(select(Message.id).where(Message.to_id == "R-%d" % rid))).delete(synchronize_session=False)
     db.query(Message).filter(Message.to_id == "R-%d" % rid).delete(synchronize_session=False)
     db.query(RoomMember).filter(RoomMember.room_id == rid).delete(synchronize_session=False)
     db.query(RoomExt).filter(RoomExt.room_id == rid).delete(synchronize_session=False)
@@ -671,6 +713,7 @@ def purge_user(db, pid):
         cld_destroy(m)  # hapus juga berkas di Cloudinary (maks 15 sekali jalan)
     for r in db.query(Room).filter_by(owner=pid).all():
         purge_room(db, r.id)
+    db.query(MsgReply).filter(MsgReply.message_id.in_(select(Message.id).where(or_(Message.sender == pid, Message.to_id == pid)))).delete(synchronize_session=False)
     for M, col in ID_COLS:
         c = getattr(M, col)
         db.query(M).filter(c == pid).delete(synchronize_session=False)
@@ -897,7 +940,7 @@ def history(db, u):
     bl = blocked_list(db, me_id)
     blk = [~Message.sender.in_(bl)] if bl else []
     rows = db.query(Message).filter(Message.kind == "text", cond, *blk).order_by(Message.id.desc()).limit(200).all()
-    return jsonify(messages=[m.public() for m in reversed(rows)])
+    return jsonify(messages=pub_msgs(db, list(reversed(rows)), me_id))
 
 
 @app.get("/api/poll")
@@ -923,7 +966,7 @@ def poll(db, u):
             break
         db.rollback()  # lepas koneksi database selama menunggu
         time.sleep(0.4)
-    return jsonify(events=[m.public() for m in rows], last=rows[-1].id if rows else after)
+    return jsonify(events=pub_msgs(db, rows, u.player_id), last=rows[-1].id if rows else after)
 
 
 _ice = {"t": 0.0, "v": None}
