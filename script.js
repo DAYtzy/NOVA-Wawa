@@ -156,7 +156,7 @@ async function initDashboard() {
   const short = (t) => (new Date(t).toDateString() === new Date().toDateString() ? tm(t) : new Date(t).toLocaleDateString([], { day: "numeric", month: "short" }));
   const hasStory = (p) => st.stories.some((s) => s.owner === p);
   const send = (to, kind, body) => api("/send", { method: "POST", body: JSON.stringify({ to, kind, body }) });
-  const chAv = (k) => { const e = mk("div", null, "av ico " + k); e.append(ic(k === "group" ? "users" : "channel")); return e; };
+  const chAv = (k, img, nm) => { const g = safeImg(img); if (g) return av(nm || "?", g); const e = mk("div", null, "av ico " + k); e.append(ic(k === "group" ? "users" : "channel")); return e; };
   const row = (img, name, sub, onclick, o = {}) => {
     const li = mk("li", null, "item"), box = mk("div", null, "txt"), w = mk("div", null, "avw");
     const nb = mk("b", name);
@@ -211,15 +211,15 @@ async function initDashboard() {
       b.onclick = () => (hasStory(c.player_id) ? viewStories(c.player_id) : open(c.player_id));
       return b;
     }));
-    const E = st.contacts.map((c) => ({ p: c.player_id, n: c.full_name, i: c.avatar, k: "dm", v: c.verified, tag: c.owner ? "OWNER" : "" }));
-    st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind }));
+    const E = st.contacts.map((c) => ({ p: c.player_id, n: c.full_name, i: c.avatar, k: "dm", v: c.verified, tag: c.owner ? "OWNER" : c.mod ? "MOD" : "" }));
+    st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind, i: r.avatar }));
     Object.keys(st.last).forEach((k) => { if (!isRoom(k) && !saved(k) && k !== me.player_id) E.push({ p: k, n: nameOf(k), i: imgOf(k), k: "dm", v: k === OFFICIAL, tag: k === OFFICIAL ? "RESMI" : "" }); });
     const F = E.filter((e) => (st.filter === "all" || e.k === st.filter) && (e.n + e.p).toLowerCase().includes(q))
       .sort((a, b) => (Date.parse(st.lastT[b.p]) || 0) - (Date.parse(st.lastT[a.p]) || 0));
     $("#empty-list").hidden = F.length > 0;
     $("#empty-list").textContent = E.length ? "Tidak ada chat yang cocok." : "Belum ada chat. Tap + lalu masukkan ID temanmu untuk menyimpannya.";
     $("#list").replaceChildren(...F.map((e) => row(e.i, e.n, lastText(st.last[e.p]) || (e.k === "dm" ? e.p : e.k === "group" ? "Grup" : "Saluran"), () => open(e.p),
-      { time: st.lastT[e.p] ? short(st.lastT[e.p]) : "", badge: st.unread[e.p] || "", verified: e.v, tag: e.tag, avEl: e.k === "dm" ? null : chAv(e.k), online: e.k === "dm" && !!(st.seen[e.p] && st.seen[e.p].online) })));
+      { time: st.lastT[e.p] ? short(st.lastT[e.p]) : "", badge: st.unread[e.p] || "", verified: e.v, tag: e.tag, avEl: e.k === "dm" ? null : chAv(e.k, e.i, e.n), online: e.k === "dm" && !!(st.seen[e.p] && st.seen[e.p].online) })));
 
     /* Pembaruan: kartu status */
     const card = (o, label, onclick) => {
@@ -238,7 +238,7 @@ async function initDashboard() {
     /* Saluran */
     const chs = st.rooms.filter((r) => r.kind === "channel");
     const chRow = (r) => row(null, r.name, r.count + " pengikut" + (r.about ? " · " + r.about : ""), () => (r.joined ? open("R-" + r.id) : joinCh(r.id)),
-      { avEl: chAv("channel"), badge: r.owner === me.player_id ? "ADMIN" : st.unread["R-" + r.id] || "", icon: r.joined ? null : ic("plus", "pbtn") });
+      { avEl: chAv("channel", r.avatar, r.name), badge: r.owner === me.player_id ? "ADMIN" : st.unread["R-" + r.id] || "", icon: r.joined ? null : ic("plus", "pbtn") });
     const mineCh = chs.filter((r) => r.joined), finds = chs.filter((r) => !r.joined);
     $("#mych").replaceChildren(...mineCh.map(chRow));
     $("#find-h").hidden = !finds.length;
@@ -254,7 +254,7 @@ async function initDashboard() {
     $("#pname").textContent = me.full_name; $("#pstat").textContent = me.status || "Belum ada status";
     $("#pid").textContent = me.player_id; $("#pyear").textContent = "Lahir " + me.birth_year;
     $("#pcover").style.backgroundImage = safeImg(me.cover) ? 'url("' + me.cover + '")' : "";
-    $("#pver").toggleAttribute("hidden", !me.verified); $("#pown").hidden = !me.owner; $("#admbtn").hidden = !me.is_owner; $("#pvb").toggleAttribute("hidden", !me.verified); $("#copysub").textContent = me.player_id;
+    $("#pver").toggleAttribute("hidden", !me.verified); $("#pown").hidden = !(me.owner || me.mod); $("#pown").textContent = me.owner ? "OWNER" : "MOD"; $("#admbtn").hidden = !me.is_staff; $("#admtitle").textContent = me.is_owner ? "Panel Owner" : "Panel Moderator"; $("#admsub").textContent = me.is_owner ? "Kelola pengguna, banner, laporan, dan pengumuman" : "Tangani laporan dan blokir pengguna"; $("#pvb").toggleAttribute("hidden", !me.verified); $("#copysub").textContent = me.player_id;
     $("#swpub").setAttribute("aria-checked", String(me.public !== false)); $("#storysub").textContent = VIS[me.story_vis || "all"]; $("#seensub").textContent = VIS[me.seen_vis || "all"]; $("#verifybtn").hidden = !(me.mail && !me.email_verified);
   }
   async function loadContacts() { st.contacts = (await api("/contacts")).contacts; render(); }
@@ -321,10 +321,10 @@ async function initDashboard() {
     const r = roomOf(p);
     $("#rtitle").textContent = nameOf(p);
     const ct = contact(p); if (ct && ct.owner) $("#rtitle").append(mk("i", "OWNER", "own")); if (p === OFFICIAL) $("#rtitle").append(mk("i", "RESMI", "own"));
-    $("#rav").replaceChildren(av(nameOf(p), imgOf(p)));
+    $("#rav").replaceChildren(r ? chAv(r.kind, r.avatar, r.name) : av(nameOf(p), imgOf(p)));
     $("#rid").className = ""; $("#rid").textContent = r ? (r.kind === "group" ? "Grup" : "Saluran · " + r.count + " pengikut") : p;
     roomSub(); $("#tray").hidden = true;
-    $("#savebtn").hidden = !!r || saved(p) || p === OFFICIAL; $("#morebtn").hidden = !!r || p === OFFICIAL; $("#vbtn").hidden = $("#abtn").hidden = !!r || p === OFFICIAL;
+    $("#savebtn").hidden = !!r || saved(p) || p === OFFICIAL; $("#morebtn").hidden = p === OFFICIAL; $("#vbtn").hidden = $("#abtn").hidden = !!r || p === OFFICIAL;
     $("#form").hidden = (!!r && r.kind === "channel" && r.owner !== me.player_id) || p === OFFICIAL;
     $("#msgs").replaceChildren(); show("room");
     (await api("/history?peer=" + encodeURIComponent(p))).messages.forEach(addMsg);
@@ -1118,8 +1118,55 @@ async function initDashboard() {
   setTimeout(openFromHash, 700);
   st.blocked = new Set();
   async function loadBlocks() { try { st.blocked = new Set((await api("/blocks")).blocks.map((b) => b.player_id)); } catch {} }
+  async function editRoom(r, patch, okMsg) {
+    try {
+      await api("/rooms/" + r.id + "/edit", { method: "POST", body: JSON.stringify(patch) });
+      await loadRooms(); const nr = roomOf("R-" + r.id);
+      if (nr && st.cur === "R-" + r.id) { $("#rtitle").textContent = nr.name; $("#rav").replaceChildren(chAv(nr.kind, nr.avatar, nr.name)); loadChats(); }
+      toast(okMsg || "Disimpan");
+    } catch (e) { toast(e.message); }
+  }
+  async function showMembers(r) {
+    try {
+      const members = (await api("/rooms/" + r.id + "/members")).members;
+      const canKick = r.kind === "group" && r.owner === me.player_id;
+      const nm = (m) => m.full_name + (m.room_owner ? " (pemilik)" : "") + (m.player_id === me.player_id ? " (kamu)" : "");
+      if (!canKick) return dialog({ title: "Anggota (" + members.length + ")", desc: members.map(nm).join("\n"), ok: null });
+      const others = members.filter((m) => m.player_id !== me.player_id);
+      const pk = await dialog({ title: "Anggota (" + members.length + ")", desc: others.length ? "Pilih anggota untuk mengeluarkannya dari grup." : "Belum ada anggota lain di grup ini.", ok: null,
+        actions: others.map((m) => ({ key: m.player_id, label: "Keluarkan: " + m.full_name })) });
+      if (!pk) return;
+      const who = others.find((m) => m.player_id === pk.action); if (!who) return;
+      if (!(await dialog({ title: "Keluarkan " + who.full_name + "?", desc: "Dia tidak bisa lagi membaca atau mengirim pesan di grup ini. Anggota lain melihat pemberitahuannya.", ok: "Keluarkan" }))) return;
+      await api("/rooms/" + r.id + "/kick", { method: "POST", body: JSON.stringify({ player_id: who.player_id }) });
+      toast(who.full_name + " dikeluarkan"); loadRooms();
+      if (st.cur === "R-" + r.id) { $("#msgs").replaceChildren(); (await api("/history?peer=" + encodeURIComponent(st.cur))).messages.forEach(addMsg); }
+    } catch (e) { toast(e.message); }
+  }
+  async function roomMenu(r) {
+    const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", mineOwner = r.owner === me.player_id;
+    const acts = [{ key: "members", label: "Lihat anggota" }];
+    if (mineOwner) acts.push({ key: "edit", label: "Ganti nama dan deskripsi" }, { key: "photo", label: "Ganti foto " + jenis });
+    if (mineOwner && r.avatar) acts.push({ key: "rmphoto", label: "Hapus foto " + jenis });
+    if (grp || !mineOwner) acts.push({ key: "leave", label: grp ? "Keluar dari grup" : "Berhenti mengikuti", danger: true });
+    const a = await dialog({ title: r.name, desc: jenis + " · " + r.count + " anggota" + (r.about ? "\n" + r.about : ""), ok: null, actions: acts });
+    if (!a) return;
+    if (a.action === "members") return showMembers(r);
+    if (a.action === "edit") {
+      const f = await dialog({ title: "Ubah " + jenis, fields: [{ name: "name", label: "Nama " + jenis, value: r.name, max: 60, required: true }, { name: "about", label: "Deskripsi (opsional)", value: r.about || "", max: 200 }], ok: "Simpan" });
+      if (f) editRoom(r, { name: f.name, about: f.about });
+    } else if (a.action === "photo") {
+      const img = await pick(160, 0.75, 55000); editRoom(r, { avatar: img }, "Foto diperbarui");
+    } else if (a.action === "rmphoto") editRoom(r, { avatar: "" }, "Foto dihapus");
+    else if (a.action === "leave") {
+      const warn = grp && mineOwner ? "Kamu pemilik grup ini. Anggota paling lama akan jadi pemilik baru, dan kalau tidak ada anggota lain, grup dihapus." : "Kamu tidak akan menerima pesan dari " + jenis + " ini lagi.";
+      if (!(await dialog({ title: (grp ? "Keluar dari " : "Berhenti mengikuti ") + r.name + "?", desc: warn, ok: grp ? "Keluar" : "Berhenti" }))) return;
+      try { await api("/rooms/" + r.id + "/leave", { method: "POST" }); st.cur = null; show(st.tab); loadRooms(); toast(grp ? "Kamu keluar dari grup" : "Tidak lagi mengikuti"); } catch (e) { toast(e.message); }
+    }
+  }
   $("#morebtn").onclick = async () => {
-    const p = st.cur; if (!p || isRoom(p) || p === OFFICIAL) return;
+    const p = st.cur; if (p && isRoom(p)) { const r = roomOf(p); if (r) roomMenu(r); return; }
+    if (!p || p === OFFICIAL) return;
     const was = st.blocked.has(p);
     const r = await dialog({ title: nameOf(p), desc: "ID " + p, ok: null, actions: [{ key: "blk", label: was ? "Buka blokir" : "Blokir pengguna", danger: !was }, { key: "rep", label: "Laporkan pengguna" }] });
     if (!r) return;
@@ -1160,28 +1207,40 @@ async function initDashboard() {
   const ago = (t) => { if (!t) return "belum pernah"; const d = (Date.now() - Date.parse(t)) / 1000; if (d < 90) return "baru saja"; if (d < 3600) return Math.round(d / 60) + " mnt lalu"; if (d < 86400) return Math.round(d / 3600) + " jam lalu"; return Math.round(d / 86400) + " hari lalu"; };
   const dshort = (t) => (t ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "-");
   const adm = { stats: null };
+  const AUDIT = { block: "memblokir", unblock: "membuka blokir", verify_on: "memberi centang biru", verify_off: "mencabut centang biru", delete_user: "menghapus akun", delete_room: "menghapus grup/saluran",
+    banner: "mengubah banner", announce: "mengirim pengumuman", report_selesai: "menyelesaikan laporan", report_diabaikan: "mengabaikan laporan", mod_on: "menjadikan moderator", mod_off: "mencabut moderator" };
   const emptyLi = (t) => { const li = mk("li", t, "hint"); return li; };
   async function loadAdmin() {
     try {
       const q = $("#ausearch").value.trim();
-      const [s, u, r, sc, rp] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/rooms"), api("/admin/security"), api("/admin/reports")]);
+      const own = !!me.is_owner;
+      document.querySelectorAll("#admin [data-own]").forEach((e) => (e.hidden = !own));
+      $("#aintro").textContent = own ? "Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server dan dicatat." : "Kamu masuk sebagai moderator. Kamu bisa menangani laporan dan memblokir pengguna. Tindakanmu dicatat.";
+      const [s, u, rp, r, sc, lg] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/reports"),
+        own ? api("/admin/rooms") : { rooms: [] }, own ? api("/admin/security") : { items: [] }, own ? api("/admin/audit") : { log: [] }]);
       adm.stats = s;
+      $("#aaudit").replaceChildren(...(lg.log.length ? lg.log.map((x) => row(null, x.actor_name + " · " + (AUDIT[x.action] || x.action), (x.detail ? x.detail + " · " : "") + (x.target ? x.target + " · " : "") + ago(x.t), () => {})) : [emptyLi("Belum ada catatan.")]));
       $("#areports").replaceChildren(...(rp.reports.length ? rp.reports.map((x) => row(null, x.target_name + " · " + (REASON[x.reason] || x.reason),
         x.reporter_name + " melapor · " + ago(x.t) + (x.count > 1 ? " · " + x.count + " laporan" : "") + (x.detail ? " · " + x.detail : ""), () => reportActions(x), { badge: x.blocked ? "BLOKIR" : "" })) : [emptyLi("Tidak ada laporan baru.")]));
       $("#asec").replaceChildren(...sc.items.map((x) => { const li = mk("li", null, "sitem " + (x.ok ? "ok" : "bad")); li.append(mk("b", (x.ok ? "✓ " : "✗ ") + x.name), mk("small", x.note)); return li; }));
       $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
       $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
-        () => userActions(x), { verified: x.verified, tag: x.owner ? "OWNER" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
+        () => userActions(x), { verified: x.verified, tag: x.owner ? "OWNER" : x.mod ? "MOD" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
       $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
     } catch (e) { toast(e.message); }
   }
   async function userActions(x) {
     const r = await dialog({ title: x.full_name, desc: "ID " + x.player_id + (x.banned ? " · sedang diblokir" : ""), ok: null, actions: [
-      { key: "verify", label: x.verified ? "Cabut centang biru" : "Beri centang biru" },
-      ...(x.owner ? [] : [{ key: "block", label: x.banned ? "Buka blokir" : "Blokir akun" }, { key: "delete", label: "Hapus akun", danger: true }])] });
+      ...(me.is_owner ? [{ key: "verify", label: x.verified ? "Cabut centang biru" : "Beri centang biru" }] : []),
+      ...(x.owner || (!me.is_owner && x.mod) ? [] : [{ key: "block", label: x.banned ? "Buka blokir" : "Blokir akun" }]),
+      ...(me.is_owner && !x.owner ? [{ key: "mod", label: x.mod ? "Cabut peran moderator" : "Jadikan moderator" }, { key: "delete", label: "Hapus akun", danger: true }] : [])] });
     if (!r) return;
     try {
       if (r.action === "verify") await api("/admin/users/" + x.player_id + "/verify", { method: "POST", body: JSON.stringify({ value: !x.verified }) });
+      else if (r.action === "mod") {
+        if (!x.mod && !(await dialog({ title: "Jadikan " + x.full_name + " moderator?", desc: "Moderator bisa menangani laporan dan memblokir pengguna. Dia tidak bisa menghapus akun, mengirim pengumuman, atau mengubah pengaturan. Semua tindakannya dicatat.", ok: "Jadikan moderator" }))) return;
+        await api("/admin/users/" + x.player_id + "/role", { method: "POST", body: JSON.stringify({ value: !x.mod }) });
+      }
       else if (r.action === "block") {
         if (!x.banned && !(await dialog({ title: "Blokir " + x.full_name + "?", desc: "Dia langsung tidak bisa masuk atau memakai aplikasi sampai blokirnya dibuka.", ok: "Blokir" }))) return;
         await api("/admin/users/" + x.player_id + "/block", { method: "POST", body: JSON.stringify({ value: !x.banned }) });

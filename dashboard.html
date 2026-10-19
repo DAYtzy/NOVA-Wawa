@@ -99,7 +99,7 @@
     <button id="storybtn" class="card2 setr"><svg class="ic lead"><use href="#i-story"/></svg><span><b>Siapa yang bisa melihat story-ku</b><small id="storysub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="seenbtn" class="card2 setr"><svg class="ic lead"><use href="#i-clock"/></svg><span><b>Terakhir dilihat dan status online</b><small id="seensub"></small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="swseen" class="swb" role="switch" aria-checked="true" aria-label="Terakhir dilihat" hidden></button>
-    <button id="admbtn" class="card2 setr" hidden><svg class="ic lead"><use href="#i-lock"/></svg><span><b>Panel Owner</b><small>Kelola pengguna, banner, laporan, dan pengumuman</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
+    <button id="admbtn" class="card2 setr" hidden><svg class="ic lead"><use href="#i-lock"/></svg><span><b id="admtitle">Panel Owner</b><small id="admsub">Kelola pengguna, banner, laporan, dan pengumuman</small></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <p class="lab">AKUN</p>
     <button id="pphoto" class="card2 setr"><svg class="ic lead"><use href="#i-camera"/></svg><span><b>Ganti foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
     <button id="pdel" class="card2 setr"><svg class="ic lead"><use href="#i-trash"/></svg><span><b>Hapus foto profil</b></span><svg class="ic"><use href="#i-chev"/></svg></button>
@@ -114,22 +114,24 @@
     <button id="logout" class="card2 setr out"><svg class="ic lead"><use href="#i-logout"/></svg><span><b>Logout</b></span></button>
   </section>
   <section id="admin" hidden>
-    <p class="hint l">Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server.</p>
-    <h2 class="sec">Keamanan</h2>
-    <ul id="asec" class="list"></ul>
+    <p id="aintro" class="hint l">Semua tindakan di sini dicek ulang oleh server.</p>
+    <h2 class="sec" data-own>Keamanan</h2>
+    <ul id="asec" class="list" data-own></ul>
     <h2 class="sec">Laporan pengguna</h2>
     <ul id="areports" class="list"></ul>
     <h2 class="sec">Statistik</h2>
     <div id="astats" class="astats"></div>
-    <h2 class="sec">Banner pengumuman</h2>
-    <div class="card2 col"><input id="abanner" maxlength="300" placeholder="Teks banner di halaman Chat" aria-label="Teks banner"><div class="arow"><button id="abset" class="btn">Simpan banner</button><button id="abreset" class="btn ghost">Reset</button></div></div>
-    <h2 class="sec">Kirim ke semua</h2>
-    <div class="card2 col"><textarea id="acast" rows="3" maxlength="500" placeholder="Tulis pengumuman. Muncul di chat setiap pengguna sebagai pesan dari NOVA WAWA." aria-label="Isi pengumuman"></textarea><button id="acastgo" class="btn">Kirim ke semua pengguna</button></div>
+    <h2 class="sec" data-own>Banner pengumuman</h2>
+    <div class="card2 col" data-own><input id="abanner" maxlength="300" placeholder="Teks banner di halaman Chat" aria-label="Teks banner"><div class="arow"><button id="abset" class="btn">Simpan banner</button><button id="abreset" class="btn ghost">Reset</button></div></div>
+    <h2 class="sec" data-own>Kirim ke semua</h2>
+    <div class="card2 col" data-own><textarea id="acast" rows="3" maxlength="500" placeholder="Tulis pengumuman. Muncul di chat setiap pengguna sebagai pesan dari NOVA WAWA." aria-label="Isi pengumuman"></textarea><button id="acastgo" class="btn">Kirim ke semua pengguna</button></div>
     <h2 class="sec">Pengguna</h2>
     <div class="sbox big"><svg class="ic"><use href="#i-search"/></svg><input id="ausearch" placeholder="Cari nama atau ID..." aria-label="Cari pengguna"></div>
     <ul id="ausers" class="list"></ul>
-    <h2 class="sec">Grup dan saluran</h2>
-    <ul id="arooms" class="list"></ul>
+    <h2 class="sec" data-own>Grup dan saluran</h2>
+    <ul id="arooms" class="list" data-own></ul>
+    <h2 class="sec" data-own>Catatan aksi staf</h2>
+    <ul id="aaudit" class="list" data-own></ul>
   </section>
 </main>
 <section id="room" hidden>

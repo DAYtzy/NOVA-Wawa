@@ -10,7 +10,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 import mailer, push
 from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -74,7 +74,7 @@ def migrate_ids():
 migrate_ids()
 
 
-_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set()}
+_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set(), "mods": set()}
 
 
 def flags(db):
@@ -85,7 +85,8 @@ def flags(db):
             a = db.get(AppSetting, "announce")
             _cache.update(t=time.time(), banned={r.player_id for r in rows if r.banned},
                           vfy={r.player_id: r.verified for r in rows if r.verified is not None},
-                          announce=(a.value if a and a.value else ""), pwchg={r.player_id for r in db.query(PwChange)})
+                          announce=(a.value if a and a.value else ""), pwchg={r.player_id for r in db.query(PwChange)},
+                          mods={r.player_id for r in db.query(StaffRole).filter(StaffRole.role == "mod")})
             if _cache["first"] is None:
                 _cache["first"] = db.query(func.min(User.id)).filter(User.player_id != OFFICIAL).scalar()
         except Exception as e:
@@ -98,6 +99,14 @@ def is_owner(u):
     if OWNER_IDS:
         return u.player_id in OWNER_IDS
     return _cache["first"] is not None and u.id == _cache["first"]
+
+
+def is_mod(u):
+    return u.player_id in _cache["mods"] and not is_owner(u)
+
+
+def is_staff(u):
+    return is_owner(u) or is_mod(u)
 
 
 def is_verified(u):
@@ -175,6 +184,33 @@ def owner_only(f):
     return w
 
 
+def staff_only(f):
+    """Owner atau moderator."""
+    @authed
+    @wraps(f)
+    def w(db, u, *a, **k):
+        if not is_staff(u):
+            return jsonify(error="Khusus staf."), 403
+        return f(db, u, *a, **k)
+    return w
+
+
+AUDIT_KEEP_DAYS = 180
+
+
+def audit(db, u, action, target="", detail=""):
+    """Catat tindakan staf. Gagal mencatat tidak boleh menggagalkan tindakannya."""
+    try:
+        db.add(AuditLog(actor=u.player_id, action=action[:24], target=str(target)[:40], detail=clean(detail, 200)))
+        db.commit()
+        if secrets.randbelow(50) == 0:  # sesekali buang catatan lama
+            db.query(AuditLog).filter(AuditLog.created_at < datetime.utcnow() - timedelta(days=AUDIT_KEEP_DAYS)).delete(synchronize_session=False)
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print("audit gagal:", e)
+
+
 def ensure_official():
     try:
         with Session() as db:
@@ -216,12 +252,12 @@ def prof(db, ids):
 
 def pub(u, pr, mine=False):
     d = pr.get(u.player_id, EMPTY)
-    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u)}
+    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u), "mod": is_mod(u)}
     if not mine:
         o.pop("birth_year", None)  # tahun lahir hanya terlihat oleh pemilik akun
     if mine:
         o.update(avatar=d["avatar"], status=d["status"], cover=d["cover"], public=d["public"],
-                 show_seen=d["show_seen"], story_vis=d["story_vis"], seen_vis=d["seen_vis"], mail=mailer.mail_ready(), email_verified=d["email_ok"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), official=OFFICIAL, cld=bool(cld_conf()))
+                 show_seen=d["show_seen"], story_vis=d["story_vis"], seen_vis=d["seen_vis"], mail=mailer.mail_ready(), email_verified=d["email_ok"], announce=_cache["announce"] or ANNOUNCE, is_owner=is_owner(u), is_staff=is_staff(u), official=OFFICIAL, cld=bool(cld_conf()))
     elif d["public"]:  # profil privat: foto & status disembunyikan dari orang lain
         o.update(avatar=d["avatar"], status=d["status"])
     else:
@@ -626,6 +662,7 @@ def sticker_up(db, u):
 def purge_room(db, rid):
     db.query(Message).filter(Message.to_id == "R-%d" % rid).delete(synchronize_session=False)
     db.query(RoomMember).filter(RoomMember.room_id == rid).delete(synchronize_session=False)
+    db.query(RoomExt).filter(RoomExt.room_id == rid).delete(synchronize_session=False)
     db.query(Room).filter(Room.id == rid).delete(synchronize_session=False)
 
 
@@ -638,7 +675,7 @@ def purge_user(db, pid):
         c = getattr(M, col)
         db.query(M).filter(c == pid).delete(synchronize_session=False)
     for M, col in ((UserFlag, "player_id"), (EmailOk, "player_id"), (PrivPref, "player_id"), (PushSub, "player_id"), (PwChange, "player_id"),
-                   (Block, "owner"), (Block, "target"), (Report, "reporter")):
+                   (Block, "owner"), (Block, "target"), (Report, "reporter"), (StaffRole, "player_id")):
         c = getattr(M, col)
         db.query(M).filter(c == pid).delete(synchronize_session=False)
     # User sudah terhapus lewat ID_COLS (User.player_id)
@@ -651,6 +688,8 @@ def target_user(db, u, pid, allow_self=False):
         return None, (jsonify(error="Pengguna tidak ditemukan."), 404)
     if not allow_self and (is_owner(t) or t.id == u.id):
         return None, (jsonify(error="Akun owner tidak bisa dikenai tindakan ini."), 400)
+    if is_mod(u) and is_mod(t):
+        return None, (jsonify(error="Moderator tidak bisa menindak moderator lain."), 400)
     return t, None
 
 
@@ -659,7 +698,7 @@ def iso(dt):
 
 
 @app.get("/api/admin/stats")
-@owner_only
+@staff_only
 def adm_stats(db, u):
     now = datetime.utcnow()
     day = now - timedelta(days=1)
@@ -675,7 +714,7 @@ def adm_stats(db, u):
 
 
 @app.get("/api/admin/users")
-@owner_only
+@staff_only
 def adm_users(db, u):
     q = (request.args.get("q") or "").strip().replace("%", "").replace("_", "")[:40]
     qs = db.query(User).filter(User.player_id != OFFICIAL)
@@ -688,7 +727,7 @@ def adm_users(db, u):
         ls = ext[x.player_id].last_seen if x.player_id in ext else None
         out.append({"player_id": x.player_id, "full_name": x.full_name, "created_at": iso(x.created_at), "last_seen": iso(ls),
                     "online": bool(ls and (now - ls).total_seconds() < 90), "verified": is_verified(x),
-                    "owner": is_owner(x), "banned": x.player_id in _cache["banned"]})
+                    "owner": is_owner(x), "mod": is_mod(x), "banned": x.player_id in _cache["banned"]})
     return jsonify(users=out)
 
 
@@ -707,18 +746,51 @@ def adm_verify(db, u, pid):
     t, err = target_user(db, u, pid, allow_self=True)
     if err:
         return err
-    set_flag(db, t.player_id, verified=bool((request.get_json(silent=True) or {}).get("value")))
+    val = bool((request.get_json(silent=True) or {}).get("value"))
+    set_flag(db, t.player_id, verified=val)
+    audit(db, u, "verify_on" if val else "verify_off", t.player_id, t.full_name)
     return jsonify(ok=True)
 
 
 @app.post("/api/admin/users/<pid>/block")
-@owner_only
+@staff_only
 def adm_block(db, u, pid):
     t, err = target_user(db, u, pid)
     if err:
         return err
-    set_flag(db, t.player_id, banned=bool((request.get_json(silent=True) or {}).get("value")))
+    val = bool((request.get_json(silent=True) or {}).get("value"))
+    set_flag(db, t.player_id, banned=val)
+    audit(db, u, "block" if val else "unblock", t.player_id, t.full_name)
     return jsonify(ok=True)
+
+
+@app.post("/api/admin/users/<pid>/role")
+@owner_only
+def adm_role(db, u, pid):
+    """Jadikan atau cabut peran moderator. Hanya owner."""
+    t, err = target_user(db, u, pid)
+    if err:
+        return err
+    on = bool((request.get_json(silent=True) or {}).get("value"))
+    cur = db.get(StaffRole, t.player_id)
+    if on and not cur:
+        db.add(StaffRole(player_id=t.player_id, role="mod", by=u.player_id))
+    elif not on and cur:
+        db.delete(cur)
+    db.commit()
+    _cache["t"] = 0.0
+    audit(db, u, "mod_on" if on else "mod_off", t.player_id, t.full_name)
+    return jsonify(ok=True)
+
+
+@app.get("/api/admin/audit")
+@owner_only
+def adm_audit(db, u):
+    rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(80).all()
+    ids = list({r.actor for r in rows})
+    names = {x.player_id: x.full_name for x in db.query(User).filter(User.player_id.in_(ids))} if ids else {}
+    return jsonify(log=[{"id": r.id, "actor": r.actor, "actor_name": names.get(r.actor, r.actor), "action": r.action,
+                         "target": r.target or "", "detail": r.detail or "", "t": iso(r.created_at)} for r in rows])
 
 
 @app.delete("/api/admin/users/<pid>")
@@ -727,9 +799,11 @@ def adm_delete_user(db, u, pid):
     t, err = target_user(db, u, pid)
     if err:
         return err
-    purge_user(db, t.player_id)
+    pid_, nm = t.player_id, t.full_name
+    purge_user(db, pid_)
     db.commit()
     _cache["t"] = 0.0
+    audit(db, u, "delete_user", pid_, nm)
     return jsonify(ok=True)
 
 
@@ -745,10 +819,13 @@ def adm_rooms(db, u):
 @app.delete("/api/admin/rooms/<int:rid>")
 @owner_only
 def adm_delete_room(db, u, rid):
-    if not db.get(Room, rid):
+    r = db.get(Room, rid)
+    if not r:
         return jsonify(error="Tidak ditemukan."), 404
+    nm = r.name
     purge_room(db, rid)
     db.commit()
+    audit(db, u, "delete_room", "R-%d" % rid, nm)
     return jsonify(ok=True)
 
 
@@ -774,6 +851,7 @@ def adm_banner(db, u):
     db.add(s_)
     db.commit()
     _cache["announce"] = text
+    audit(db, u, "banner", "", text or "(reset)")
     return jsonify(announce=text or ANNOUNCE)
 
 
@@ -786,6 +864,7 @@ def adm_announce(db, u):
     pids = [p for (p,) in db.query(User.player_id).filter(User.player_id != OFFICIAL) if p not in _cache["banned"]]
     db.add_all([Message(sender=OFFICIAL, to_id=p, kind="text", body=enc(text)) for p in pids])
     db.commit()
+    audit(db, u, "announce", "%d pengguna" % len(pids), text)
     return jsonify(sent=len(pids))
 
 
@@ -1161,7 +1240,7 @@ def report_post(db, u):
 
 
 @app.get("/api/admin/reports")
-@owner_only
+@staff_only
 def adm_reports(db, u):
     st = request.args.get("status") or "baru"
     rows = db.query(Report).filter(Report.status == st).order_by(Report.id.desc()).limit(60).all()
@@ -1174,13 +1253,14 @@ def adm_reports(db, u):
 
 
 @app.post("/api/admin/reports/<int:rid>")
-@owner_only
+@staff_only
 def adm_report_set(db, u, rid):
     r = db.get(Report, rid)
     if not r:
         return jsonify(error="Tidak ditemukan."), 404
     r.status = "selesai" if (request.get_json(silent=True) or {}).get("status") == "selesai" else "diabaikan"
     db.commit()
+    audit(db, u, "report_" + r.status, r.target, "laporan #%d (%s)" % (r.id, r.reason))
     return jsonify(ok=True)
 
 
@@ -1305,8 +1385,9 @@ def stories_post(db, u):
 def rooms_get(db, u):
     mine = {m.room_id for m in db.query(RoomMember).filter_by(player_id=u.player_id)}
     cnt = dict(db.query(RoomMember.room_id, func.count(RoomMember.id)).group_by(RoomMember.room_id).all())
+    av_ = {x.room_id: x.avatar or "" for x in db.query(RoomExt)}
     return jsonify(rooms=[{"id": r.id, "kind": r.kind, "name": r.name, "about": r.about, "owner": r.owner,
-                           "count": cnt.get(r.id, 0), "joined": r.id in mine}
+                           "count": cnt.get(r.id, 0), "joined": r.id in mine, "avatar": av_.get(r.id, "")}
                           for r in db.query(Room).order_by(Room.id.desc()) if r.kind == "channel" or r.id in mine])
 
 
@@ -1354,6 +1435,115 @@ def rooms_join(db, u, rid):
     if not db.query(RoomMember.id).filter_by(room_id=rid, player_id=u.player_id).first():
         db.add(RoomMember(room_id=rid, player_id=u.player_id))
         db.commit()
+    return jsonify(ok=True)
+
+
+def room_notice(db, rid, text):
+    """Pesan sistem di dalam grup (dikirim oleh akun resmi)."""
+    db.add(Message(sender=OFFICIAL, to_id="R-%d" % rid, kind="text", body=enc(text)))
+
+
+def my_room(db, u, rid, need_owner=False):
+    """(room, error). Pemanggil harus anggota; kalau need_owner, harus pemilik ruang."""
+    r = db.get(Room, rid)
+    if not r or not db.query(RoomMember.id).filter_by(room_id=rid, player_id=u.player_id).first():
+        return None, (jsonify(error="Grup tidak ditemukan."), 404)
+    if need_owner and r.owner != u.player_id:
+        return None, (jsonify(error="Hanya pemilik yang bisa melakukan ini."), 403)
+    return r, None
+
+
+@app.get("/api/rooms/<int:rid>/members")
+@authed
+def room_members(db, u, rid):
+    r, err = my_room(db, u, rid)
+    if err:
+        return err
+    ids = [m.player_id for m in db.query(RoomMember).filter_by(room_id=rid).order_by(RoomMember.id).limit(300)]
+    pr = prof(db, ids)
+    users = {x.player_id: x for x in db.query(User).filter(User.player_id.in_(ids))}
+    return jsonify(members=[{"player_id": i, "full_name": users[i].full_name, "avatar": pr[i]["avatar"] if pr[i]["public"] else "",
+                             "room_owner": i == r.owner} for i in ids if i in users])
+
+
+@app.post("/api/rooms/<int:rid>/leave")
+@authed
+def room_leave(db, u, rid):
+    r, err = my_room(db, u, rid)
+    if err:
+        return err
+    if r.kind == "channel" and r.owner == u.player_id:
+        return jsonify(error="Pemilik saluran tidak bisa keluar. Hapus saluran lewat owner aplikasi, atau minta bantuan admin."), 400
+    db.query(RoomMember).filter_by(room_id=rid, player_id=u.player_id).delete(synchronize_session=False)
+    left = db.query(RoomMember).filter_by(room_id=rid).order_by(RoomMember.id).first()
+    if r.kind == "group":
+        if not left:
+            purge_room(db, rid)  # tidak ada anggota tersisa
+            db.commit()
+            return jsonify(ok=True)
+        if r.owner == u.player_id:  # pemilik keluar: anggota paling lama jadi pemilik baru
+            r.owner = left.player_id
+            nu = db.query(User).filter_by(player_id=left.player_id).first()
+            room_notice(db, rid, "%s keluar dari grup. %s sekarang pemilik grup." % (u.full_name, nu.full_name if nu else left.player_id))
+        else:
+            room_notice(db, rid, "%s keluar dari grup." % u.full_name)
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/rooms/<int:rid>/kick")
+@authed
+def room_kick(db, u, rid):
+    r, err = my_room(db, u, rid, need_owner=True)
+    if err:
+        return err
+    if r.kind != "group":
+        return jsonify(error="Hanya untuk grup."), 400
+    if not rl(db, "kick:" + u.player_id, 30, 3600):
+        return jsonify(error="Terlalu banyak. Coba lagi nanti."), 429
+    pid = str((request.get_json(silent=True) or {}).get("player_id") or "").strip().upper()
+    if pid == u.player_id:
+        return jsonify(error="Gunakan Keluar dari grup untuk dirimu sendiri."), 400
+    m = db.query(RoomMember).filter_by(room_id=rid, player_id=pid).first()
+    if not m:
+        return jsonify(error="Dia bukan anggota grup ini."), 404
+    t = db.query(User).filter_by(player_id=pid).first()
+    db.delete(m)
+    room_notice(db, rid, "%s dikeluarkan dari grup." % (t.full_name if t else pid))
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/rooms/<int:rid>/edit")
+@authed
+def room_edit(db, u, rid):
+    r, err = my_room(db, u, rid, need_owner=True)
+    if err:
+        return err
+    if not rl(db, "redit:" + u.player_id, 30, 3600):
+        return jsonify(error="Terlalu banyak perubahan. Coba lagi nanti."), 429
+    d = request.get_json(silent=True) or {}
+    jenis = "grup" if r.kind == "group" else "saluran"
+    if "name" in d:
+        name = clean(d.get("name"), 60)
+        if not name:
+            return jsonify(error="Nama wajib diisi."), 400
+        if name != r.name:
+            r.name = name
+            if r.kind == "group":
+                room_notice(db, rid, "%s mengganti nama grup menjadi \"%s\"." % (u.full_name, name))
+    if "about" in d:
+        r.about = clean(d.get("about"), 200)
+    if "avatar" in d:
+        a = d.get("avatar") or ""
+        if a and not safe_data_url(a, 60000):
+            return jsonify(error="Foto %s tidak valid atau terlalu besar." % jenis), 400
+        e = db.get(RoomExt, rid) or RoomExt(room_id=rid)
+        e.avatar = a
+        db.add(e)
+        if r.kind == "group":
+            room_notice(db, rid, "%s %s foto grup." % (u.full_name, "mengganti" if a else "menghapus"))
+    db.commit()
     return jsonify(ok=True)
 
 

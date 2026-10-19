@@ -206,3 +206,27 @@ class PushSub(Base):  # perangkat yang mengaktifkan notifikasi
     p256dh = Column(String(120), nullable=False)
     auth = Column(String(40), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class StaffRole(Base):  # peran staf selain owner. role: "mod" = moderator (boleh tangani laporan dan blokir, tidak boleh hapus akun)
+    __tablename__ = "staff_roles"
+    player_id = Column(String(12), primary_key=True)
+    role = Column(String(10), nullable=False, default="mod")
+    by = Column(String(12), default="")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class AuditLog(Base):  # catatan tindakan owner dan moderator
+    __tablename__ = "audit_log"
+    id = Column(Integer, primary_key=True)
+    actor = Column(String(12), nullable=False, index=True)
+    action = Column(String(24), nullable=False)
+    target = Column(String(40), default="")
+    detail = Column(String(200), default="")
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+class RoomExt(Base):  # tabel baru (bukan ALTER) untuk foto grup/saluran
+    __tablename__ = "room_ext"
+    room_id = Column(Integer, primary_key=True)
+    avatar = Column(Text, default="")
