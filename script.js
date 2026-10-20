@@ -688,8 +688,9 @@ async function initDashboard() {
     const isV = file.type.startsWith("video/");
     if (!isV && !file.type.startsWith("image/")) { toast("Pilih foto atau video."); return false; }
     if (isV) {
+      const maxMb = 100;  // batas Cloudinary paket gratis per video; naikkan angka ini hanya kalau paket Cloudinary-mu naik
       if (!me.cld) { toast("Video butuh penyimpanan Cloudinary. Minta owner mengisinya di Vercel."); return false; }
-      if (file.size > 30 * 1048576) { toast("Video terlalu besar (maks 30 MB)."); return false; }
+      if (file.size > maxMb * 1048576) { toast("Video terlalu besar (" + Math.round(file.size / 1048576) + " MB, maks " + maxMb + " MB). Potong atau kompres dulu."); return false; }
       const p = await probeVideo(file), max = story ? 60 : 180;
       if (p.dur > max) { toast("Video terlalu panjang (maks " + (story ? "60 detik" : "3 menit") + ")."); return false; }
     }
