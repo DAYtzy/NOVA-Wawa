@@ -1443,25 +1443,27 @@ function startGridCanvas() {
   return () => cancelAnimationFrame(raf);
 }
 
-function typewriterEffect(el, text, speed) {
+function wordRevealEffect(el, text) {
   if (!el) return;
-  el.textContent = "";
   el.setAttribute("aria-label", text);
+  el.innerHTML = "";
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduced) { el.textContent = text; return; }
-  let i = 0;
-  const cur = document.createElement("span"); cur.className = "tw-cursor"; cur.textContent = "|"; el.append(cur);
-  const tick = () => {
-    if (i < text.length) { cur.before(text[i++]); setTimeout(tick, speed); }
-    else { setTimeout(() => cur.remove(), 600); }
-  };
-  setTimeout(tick, 400);
+  const words = text.split(" ");
+  // tiap kata dibungkus span, spasi ikut di dalam span
+  words.forEach((w, i) => {
+    const s = document.createElement("span");
+    s.className = "tw-word";
+    s.textContent = (i === 0 ? w : " " + w);
+    s.style.animationDelay = (i * 0.1) + "s";
+    el.append(s);
+  });
 }
 
 function initLanding() {
   startGridCanvas();
   if (getToken()) { const e = $("#enter"); if (e) { e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; } }
-  typewriterEffect(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA", 55);
+  wordRevealEffect(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA");
 }
 
 function initAbout() {
