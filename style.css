@@ -226,11 +226,14 @@ body[data-page="landing"] .legal-links a,body[data-page="about"] .legal-links a{
 .about-card .lfi{font-size:1.4rem}
 .about-card b{color:#fff;font-size:.85rem}
 .about-card p{margin:0;color:rgba(255,255,255,.55);font-size:.75rem;line-height:1.5}
-/* animasi teks landing: kata muncul satu per satu */
-.ltitle{font:700 clamp(1.1rem,5vw,1.7rem) "Space Grotesk",sans-serif;letter-spacing:.04em;margin:0;color:#fff;line-height:1.6;text-align:center;min-height:3em;word-break:keep-all}
-.tw-word{display:inline;opacity:0;transform:translateY(12px);animation:twword .38s cubic-bezier(.34,1.56,.64,1) forwards}
-@keyframes twword{to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-word{animation:none;opacity:1;transform:none}}
+/* animasi teks landing: spotlight kata per kata */
+.ltitle{font:700 clamp(.9rem,4vw,1.5rem) "Space Grotesk",sans-serif;letter-spacing:.05em;margin:0;color:#fff;line-height:1.6;text-align:center}
+.tw-sp{display:inline}
+.tw-word{display:inline;transition:color .15s,text-shadow .15s}
+.tw-dim{color:rgba(255,255,255,.18)}
+.tw-active{color:#fff;text-shadow:0 0 18px rgba(168,85,247,.9),0 0 6px rgba(168,85,247,.6)}
+.tw-done{color:rgba(255,255,255,.75);text-shadow:none}
+@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-word{transition:none;color:#fff!important;text-shadow:none!important}}
 
 /* dialog & toast bergaya NOVA (pengganti popup bawaan browser) */
 textarea{border:3px solid var(--ink);background:#fff;padding:.7rem;font:inherit;color:var(--ink);border-radius:0;resize:vertical;width:100%}

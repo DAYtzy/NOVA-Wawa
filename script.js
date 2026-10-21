@@ -1450,14 +1450,29 @@ function wordRevealEffect(el, text) {
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduced) { el.textContent = text; return; }
   const words = text.split(" ");
-  // tiap kata dibungkus span, spasi ikut di dalam span
+  const spans = [];
+  // render semua kata sekaligus tapi dim, lalu spotlight satu per satu
   words.forEach((w, i) => {
+    if (i > 0) { const sp = document.createElement("span"); sp.textContent = " "; sp.className = "tw-sp"; el.append(sp); }
     const s = document.createElement("span");
-    s.className = "tw-word";
-    s.textContent = (i === 0 ? w : " " + w);
-    s.style.animationDelay = (i * 0.1) + "s";
+    s.className = "tw-word tw-dim";
+    s.textContent = w;
     el.append(s);
+    spans.push(s);
   });
+  // highlight tiap kata bergantian, lalu setelah selesai semua terang permanen
+  let i = 0;
+  const step = () => {
+    if (i > 0) spans[i-1].className = "tw-word tw-done";
+    if (i < spans.length) {
+      spans[i].className = "tw-word tw-active";
+      i++;
+      setTimeout(step, 320);
+    } else {
+      spans.forEach(s => s.className = "tw-word tw-done");
+    }
+  };
+  setTimeout(step, 200);
 }
 
 function initLanding() {
