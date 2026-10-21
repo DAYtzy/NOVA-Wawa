@@ -31,7 +31,20 @@ function initLogin() {
   const msg = $("#msg");
   try { const note = sessionStorage.getItem("nova_notice"); if (note) { msg.textContent = note; sessionStorage.removeItem("nova_notice"); } } catch {}
   const lv = $("#lv");
-  if (lv) { if (matchMedia("(prefers-reduced-motion: reduce)").matches) lv.pause(); else lv.play().catch(() => {}); }
+  if (lv) {
+    const nc = navigator.connection || {};
+    const slow = nc.saveData || ["slow-2g","2g","3g"].includes(nc.effectiveType);
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced && !slow && document.visibilityState !== "hidden") lv.play().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") lv.pause(); else if (!reduced && !slow) lv.play().catch(() => {}); });
+  }
+  const yi = document.querySelector('#register-form [name="birth_year"]');
+  if (yi) {
+    const cy = new Date().getFullYear();
+    yi.max = cy - 13; yi.min = cy - 120; yi.placeholder = String(cy - 25);
+    yi.addEventListener("invalid", () => yi.setCustomValidity(yi.validity.rangeOverflow ? "Kamu harus berusia minimal 13 tahun untuk memakai NOVA WAWA." : yi.validity.rangeUnderflow ? "Tahun lahir tidak valid." : ""));
+    yi.addEventListener("input", () => yi.setCustomValidity(""));
+  }
   document.querySelectorAll(".tab").forEach((t) =>
     t.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === t));
@@ -1398,7 +1411,13 @@ function splash() {
 
 function initLanding() {
   const panel = $("#panel"), v = $("#bg");
-  if (v) { if (matchMedia("(prefers-reduced-motion: reduce)").matches) v.pause(); else v.play().catch(() => {}); }
+  if (v) {
+    const nc = navigator.connection || {};
+    const slow = nc.saveData || ["slow-2g","2g","3g"].includes(nc.effectiveType);
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced && !slow && document.visibilityState !== "hidden") v.play().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") v.pause(); else if (!reduced && !slow) v.play().catch(() => {}); });
+  }
   if (getToken()) { const e = $("#enter"); e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; }
   let on = false, last = 0, lx = 0, ly = 0;
   const reveal = (x, y) => {
@@ -1406,6 +1425,7 @@ function initLanding() {
     if (x != null) { const r = document.createElement("div"); r.className = "ripple"; r.style.left = x + "px"; r.style.top = y + "px"; document.body.append(r); setTimeout(() => r.remove(), 800); }
     document.body.classList.add("show");
     panel.removeAttribute("inert"); panel.setAttribute("aria-hidden", "false");
+    if (v) setTimeout(() => v.pause(), 1100);  // beku setelah blur supaya tidak boros CPU
   };
   document.addEventListener("pointerup", (e) => {
     if (on) return;

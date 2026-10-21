@@ -39,6 +39,7 @@ MED_RE = re.compile(r"^\[med:(i|v)(o?):([0-9a-f]{24})\]$")
 IMG_DATA = re.compile(r"^data:image/jpeg;base64,[A-Za-z0-9+/=]+$")
 EXT_OK = {"mp4", "mov", "webm", "m4v", "3gp", "mkv", "jpg", "jpeg", "png", "webp"}
 ONLINE_SEC = 25
+MIN_AGE = 13  # umur minimal pendaftar; harus sama dengan Syarat Penggunaan (terms.html) dan batas di formulir (script.js)
 VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") if x.strip()}  # ID yang dapat centang biru
 ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
 PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "forgot.html", "reset.html", "verify.html", "terms.html", "privacy.html",
@@ -296,10 +297,13 @@ def register():
     name, email, pw = (d.get("full_name") or "").strip(), (d.get("email") or "").strip().lower(), d.get("password") or ""
     try:
         year = int(d.get("birth_year"))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         year = 0
-    if not name or "@" not in email or len(email) > 120 or len(name) > 60 or not 1900 <= year <= time.gmtime().tm_year:
+    cy = time.gmtime().tm_year
+    if not name or "@" not in email or len(email) > 120 or len(name) > 60 or not cy - 120 <= year <= cy:
         return jsonify(error="Data tidak valid."), 400
+    if cy - year < MIN_AGE:  # Syarat Penggunaan: minimal 13 tahun (yang dicatat hanya tahun lahir)
+        return jsonify(error="Kamu harus berusia minimal %d tahun untuk memakai NOVA WAWA." % MIN_AGE), 400
     if not d.get("agree"):
         return jsonify(error="Setujui Syarat dan Kebijakan Privasi dulu."), 400
     bad = pw_problem(pw, name, email)

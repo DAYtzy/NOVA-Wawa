@@ -9,7 +9,7 @@
 </head>
 <body data-page="login">
 <main class="center">
-  <div class="vbox"><video id="lv" autoplay muted loop playsinline preload="auto" poster="logo.png" aria-label="Video NOVA WAWA"><source src="login.mp4" type="video/mp4"></video></div>
+  <div class="vbox"><video id="lv" muted loop playsinline preload="metadata" poster="logo.png" aria-label="Video NOVA WAWA"><source src="login.mp4" type="video/mp4"></video></div>
   <section class="card">
     <div class="tabs">
       <button class="tab active" data-tab="login">Masuk</button>
@@ -26,7 +26,7 @@
 
     <form id="register-form" hidden>
       <label>Nama Lengkap<input name="full_name" required maxlength="100"></label>
-      <label>Tahun Lahir<input type="number" name="birth_year" min="1900" max="2026" placeholder="2000" required></label>
+      <label>Tahun Lahir<input type="number" name="birth_year" inputmode="numeric" placeholder="2000" required></label>
       <label>Email<input type="email" name="email" required autocomplete="email"></label>
       <label>Password (min. 8 karakter)<input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
       <label class="chk"><input type="checkbox" name="agree" required><span>Saya setuju dengan <a href="terms.html" target="_blank" rel="noopener">Syarat Penggunaan</a> dan <a href="privacy.html" target="_blank" rel="noopener">Kebijakan Privasi</a>.</span></label>
