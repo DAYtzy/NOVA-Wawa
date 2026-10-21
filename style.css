@@ -226,13 +226,10 @@ body[data-page="landing"] .legal-links a,body[data-page="about"] .legal-links a{
 .about-card .lfi{font-size:1.4rem}
 .about-card b{color:#fff;font-size:.85rem}
 .about-card p{margin:0;color:rgba(255,255,255,.55);font-size:.75rem;line-height:1.5}
-/* animasi teks landing: kata muncul satu per satu + bracket */
-.ltitle{font:700 clamp(1.2rem,5.5vw,1.9rem) "Space Grotesk",sans-serif;letter-spacing:.06em;margin:0;color:#fff;line-height:1.4;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:0 .3em;min-height:2.8em}
-.tw-words{display:inline;flex-wrap:wrap}
-.tw-word{display:inline;opacity:0;transform:translateY(18px);animation:twword .45s cubic-bezier(.34,1.56,.64,1) forwards}
-.tw-bracket{color:#7c3aed;font-size:1.4em;font-weight:300;opacity:0;animation:twword .3s ease forwards}
-@keyframes twword{to{opacity:1;transform:none}}
-@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-word,.tw-bracket{animation:none;opacity:1;transform:none}}
+/* cursor typewriter */
+.tw-cursor{display:inline-block;color:#a855f7;animation:twblink .7s step-end infinite;font-weight:300}
+@keyframes twblink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-cursor{animation:none}}
 
 /* dialog & toast bergaya NOVA (pengganti popup bawaan browser) */
 textarea{border:3px solid var(--ink);background:#fff;padding:.7rem;font:inherit;color:var(--ink);border-radius:0;resize:vertical;width:100%}

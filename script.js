@@ -1443,33 +1443,25 @@ function startGridCanvas() {
   return () => cancelAnimationFrame(raf);
 }
 
-function wordRevealEffect(el, text) {
+function typewriterEffect(el, text, speed) {
   if (!el) return;
+  el.textContent = "";
   el.setAttribute("aria-label", text);
-  el.innerHTML = "";
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduced) { el.textContent = text; return; }
-  // bracket kiri kanan
-  const bl = document.createElement("span"); bl.className = "tw-bracket tw-bl"; bl.textContent = "[";
-  const br = document.createElement("span"); br.className = "tw-bracket tw-br"; br.textContent = "]";
-  const words = text.split(" ");
-  const wrap = document.createElement("span"); wrap.className = "tw-words";
-  words.forEach((w, i) => {
-    const s = document.createElement("span"); s.className = "tw-word"; s.textContent = (i > 0 ? " " : "") + w;
-    s.style.animationDelay = (0.3 + i * 0.12) + "s";
-    wrap.append(s);
-  });
-  el.append(bl, wrap, br);
-  // bracket muncul setelah semua kata
-  const totalDelay = 0.3 + words.length * 0.12 + 0.2;
-  bl.style.animationDelay = "0.1s";
-  br.style.animationDelay = totalDelay + "s";
+  let i = 0;
+  const cur = document.createElement("span"); cur.className = "tw-cursor"; cur.textContent = "|"; el.append(cur);
+  const tick = () => {
+    if (i < text.length) { cur.before(text[i++]); setTimeout(tick, speed); }
+    else { setTimeout(() => cur.remove(), 600); }
+  };
+  setTimeout(tick, 400);
 }
 
 function initLanding() {
   startGridCanvas();
   if (getToken()) { const e = $("#enter"); if (e) { e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; } }
-  wordRevealEffect(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA");
+  typewriterEffect(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA", 55);
 }
 
 function initAbout() {
