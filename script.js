@@ -1409,31 +1409,63 @@ function splash() {
   setTimeout(() => d.classList.add("out"), 1100); setTimeout(() => d.remove(), 1500);
 }
 
-function initLanding() {
-  const panel = $("#panel"), v = $("#bg");
-  if (v) {
-    const nc = navigator.connection || {};
-    const slow = nc.saveData || ["slow-2g","2g","3g"].includes(nc.effectiveType);
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!reduced && !slow && document.visibilityState !== "hidden") v.play().catch(() => {});
-    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") v.pause(); else if (!reduced && !slow) v.play().catch(() => {}); });
+function startGridCanvas() {
+  const cv = $("#grid-bg"); if (!cv) return;
+  const ctx = cv.getContext("2d");
+  let W, H, raf;
+  function resize() { W = cv.width = innerWidth; H = cv.height = innerHeight; }
+  resize(); window.addEventListener("resize", resize);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let t = 0;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    const speed = reduced ? 0 : t * 0.3;
+    const vp = H * 0.58;  // titik lenyap perspektif
+    const cols = 10, rows = 14;
+    ctx.strokeStyle = "rgba(120,60,220,0.22)"; ctx.lineWidth = 1;
+    // garis horizontal (menjauh ke atas)
+    for (let r = 0; r <= rows; r++) {
+      const prog = (r / rows + speed * 0.004) % 1;
+      const y = vp + (H - vp) * Math.pow(prog, 1.6);
+      const xSpread = W * 0.5 * prog;
+      ctx.beginPath(); ctx.moveTo(W / 2 - xSpread, y); ctx.lineTo(W / 2 + xSpread, y); ctx.stroke();
+    }
+    // garis vertikal
+    for (let c = 0; c <= cols; c++) {
+      const xRatio = c / cols;
+      const xBottom = W * xRatio;
+      const xTop = W / 2 + (xRatio - 0.5) * W * 0.02;
+      ctx.beginPath(); ctx.moveTo(xTop, vp); ctx.lineTo(xBottom, H); ctx.stroke();
+    }
+    if (!reduced) { t++; raf = requestAnimationFrame(draw); }
   }
-  if (getToken()) { const e = $("#enter"); e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; }
-  let on = false, last = 0, lx = 0, ly = 0;
-  const reveal = (x, y) => {
-    if (on) return; on = true;
-    if (x != null) { const r = document.createElement("div"); r.className = "ripple"; r.style.left = x + "px"; r.style.top = y + "px"; document.body.append(r); setTimeout(() => r.remove(), 800); }
-    document.body.classList.add("show");
-    panel.removeAttribute("inert"); panel.setAttribute("aria-hidden", "false");
-    if (v) setTimeout(() => v.pause(), 1100);  // beku setelah blur supaya tidak boros CPU
+  draw();
+  return () => cancelAnimationFrame(raf);
+}
+
+function typewriterEffect(el, text, speed) {
+  if (!el) return;
+  el.textContent = "";
+  el.setAttribute("aria-label", text);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) { el.textContent = text; return; }
+  let i = 0;
+  const cur = document.createElement("span"); cur.className = "tw-cursor"; cur.textContent = "|"; el.append(cur);
+  const tick = () => {
+    if (i < text.length) { cur.before(text[i++]); setTimeout(tick, speed); }
+    else { setTimeout(() => cur.remove(), 600); }
   };
-  document.addEventListener("pointerup", (e) => {
-    if (on) return;
-    if (e.timeStamp - last < 350 && Math.hypot(e.clientX - lx, e.clientY - ly) < 60) reveal(e.clientX, e.clientY);
-    last = e.timeStamp; lx = e.clientX; ly = e.clientY;
-  });
-  $("#hint").onclick = (e) => { if (e.detail === 0) reveal(); };  // tombol ini untuk pengguna keyboard / pembaca layar
-  document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target === document.body) reveal(); });
+  setTimeout(tick, 400);
+}
+
+function initLanding() {
+  startGridCanvas();
+  if (getToken()) { const e = $("#enter"); if (e) { e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; } }
+  typewriterEffect(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA", 55);
+}
+
+function initAbout() {
+  startGridCanvas();
 }
 
 document.querySelectorAll("img.logo").forEach((i) => i.addEventListener("error", () => (i.style.display = "none")));
@@ -1470,6 +1502,7 @@ async function initVerify() {
 const page = document.body.dataset.page;
 if (page === "dashboard") splash();
 if (page === "landing") initLanding();
+if (page === "about") initAbout();
 if (page === "login") initLogin();
 if (page === "forgot") initForgot();
 if (page === "reset") initReset();

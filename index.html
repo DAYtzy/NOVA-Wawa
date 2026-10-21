@@ -9,16 +9,23 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="landing">
-<video id="bg" class="bgv" muted loop playsinline preload="metadata" poster="logo.png" aria-hidden="true"><source src="intro.mp4" type="video/mp4"></video>
-<div class="shade" aria-hidden="true"></div>
-<button id="hint" class="taphint" type="button">Ketuk 2x layar untuk masuk</button>
-<main id="panel" class="lpanel" aria-hidden="true" inert>
-  <div class="lcard">
-    <img src="logo.png" alt="NOVA WAWA" class="logo small r r1">
-    <h1 class="r r2">NOVA WAWA</h1>
-    <p class="sub r r3">Dapat ID unik, simpan ID teman, lalu chat, telpon, dan video call langsung dari browser.</p>
-    <a id="enter" href="login.html" class="btn r r4">MASUK / DAFTAR</a>
-    <p class="legal-links r r4"><a href="terms.html">Syarat</a> · <a href="privacy.html">Privasi</a></p>
+<canvas id="grid-bg" aria-hidden="true"></canvas>
+<main class="lhero">
+  <div class="linner">
+    <img src="logo.png" alt="" class="llogo" aria-hidden="true">
+    <h1 class="ltitle" aria-label="Selamat Datang di Website Nova Wawa"></h1>
+    <p class="ldesc">Platform chat, telpon, dan video call gratis.<br>Dapat ID unik — simpan ID teman, langsung terhubung.</p>
+    <div class="lbtns">
+      <a href="login.html" class="lbtn primary" id="enter">MASUK / LOGIN</a>
+      <a href="about.html" class="lbtn ghost">TENTANG NOVA</a>
+    </div>
+    <div class="lfeats">
+      <div class="lfeat"><span class="lfi">🔒</span><span>Aman</span></div>
+      <div class="lfeat"><span class="lfi">💬</span><span>Chat dengan temen</span></div>
+      <div class="lfeat"><span class="lfi">🪪</span><span>Menggunakan ID</span></div>
+      <div class="lfeat"><span class="lfi">👥</span><span>Banyak pengguna</span></div>
+    </div>
+    <p class="legal-links"><a href="terms.html">Syarat</a> · <a href="privacy.html">Privasi</a></p>
   </div>
 </main>
 <script src="script.js"></script>

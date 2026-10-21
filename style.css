@@ -198,27 +198,38 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem 8rem}
 .vbox{width:100%;max-width:420px;aspect-ratio:16/9;border:3px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:#000;overflow:hidden}
 .vbox video{display:block;width:100%;height:100%;object-fit:cover}
 
-/* halaman awal: video layar penuh, isi muncul saat ketuk 2x */
-body[data-page="landing"]{background:#000;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
-.bgv{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;transition:filter .8s,transform 1s}
-.shade{position:fixed;inset:0;z-index:1;background:rgba(0,0,0,.6);opacity:0;transition:opacity .6s;pointer-events:none}
-.show .shade{opacity:1}
-.show .bgv{filter:blur(5px) brightness(.8);transform:scale(1.08)}
-.taphint{position:fixed;left:50%;bottom:11%;transform:translateX(-50%);z-index:2;background:var(--y);color:var(--ink);border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink);padding:.7rem 1.1rem;font:700 .9rem "JetBrains Mono",monospace;letter-spacing:.05em;cursor:pointer;white-space:nowrap;animation:pulse 1.6s ease-in-out infinite}
-@keyframes pulse{50%{transform:translateX(-50%) translateY(-6px)}}
-.lpanel{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:1.2rem;pointer-events:none}
-.lcard{width:min(360px,100%);max-height:100%;overflow:auto;display:grid;justify-items:center;gap:1rem;text-align:center;background:var(--bg);border:3px solid var(--ink);box-shadow:8px 8px 0 var(--ink);padding:1.5rem 1.2rem;opacity:0;transform:translateY(50px) scale(.9) rotate(-1.5deg);transition:opacity .45s,transform .7s cubic-bezier(.34,1.56,.64,1)}
-.lcard .logo{width:min(200px,50vw)}
-.lcard h1{font-size:clamp(1.8rem,9vw,2.6rem);margin:0}
-.r{opacity:0;transform:translateY(28px) scale(.9);transition:opacity .45s,transform .6s cubic-bezier(.34,1.56,.64,1)}
-.show .lpanel{pointer-events:auto}
-.show .lcard{opacity:1;transform:none}
-.show .r{opacity:1;transform:none}
-.show .r1{transition-delay:.2s}.show .r2{transition-delay:.32s}.show .r3{transition-delay:.44s}.show .r4{transition-delay:.58s}
-.show .taphint{opacity:0;pointer-events:none;transition:opacity .2s}
-.ripple{position:fixed;z-index:3;width:20px;height:20px;margin:-10px 0 0 -10px;border:3px solid var(--y);border-radius:50%;pointer-events:none;animation:rip .7s ease-out forwards}
-@keyframes rip{to{transform:scale(9);opacity:0}}
-@media (prefers-reduced-motion:reduce){.taphint,.ripple{animation:none}.ripple{display:none}.lcard,.r,.bgv,.shade{transition:none;transform:none}}
+/* halaman awal & about: dark, grid perspektif ala kayz.store */
+body[data-page="landing"],body[data-page="about"]{background:#000;color:#fff;min-height:100dvh}
+#grid-bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.lhero{position:relative;z-index:1;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:2rem 1.2rem}
+.linner{display:flex;flex-direction:column;align-items:center;text-align:center;gap:1.4rem;max-width:420px;width:100%}
+.llogo{width:min(120px,28vw);border-radius:16px;box-shadow:0 0 40px rgba(160,100,255,.45)}
+.ltitle{font:700 clamp(1.3rem,6vw,2rem)/"Space Grotesk",sans-serif;letter-spacing:.04em;margin:0;min-height:2.5em;color:#fff}
+.ldesc{margin:0;color:rgba(255,255,255,.65);font-size:.9rem;line-height:1.6;max-width:30ch}
+.lbtns{display:flex;flex-direction:column;gap:.75rem;width:100%}
+.lbtn{display:block;width:100%;padding:.85rem 1.2rem;font:700 .95rem "JetBrains Mono",monospace;letter-spacing:.08em;text-decoration:none;text-align:center;border-radius:8px;transition:transform .15s,box-shadow .15s}
+.lbtn.primary{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;box-shadow:0 4px 20px rgba(168,85,247,.4)}
+.lbtn.primary:active{transform:translateY(2px);box-shadow:0 2px 8px rgba(168,85,247,.3)}
+.lbtn.ghost{background:rgba(255,255,255,.08);color:rgba(255,255,255,.8);border:1.5px solid rgba(255,255,255,.18)}
+.lbtn.ghost:active{background:rgba(255,255,255,.14)}
+.lfeats{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;width:100%}
+.lfeat{display:flex;align-items:center;gap:.6rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.7rem .9rem;font-size:.8rem;color:rgba(255,255,255,.8);text-align:left}
+.lfi{font-size:1.2rem;flex:none}
+body[data-page="landing"] .legal-links,body[data-page="about"] .legal-links{color:rgba(255,255,255,.35)}
+body[data-page="landing"] .legal-links a,body[data-page="about"] .legal-links a{color:rgba(255,255,255,.45)}
+/* about page */
+.about-inner{gap:1.2rem;padding:2.5rem 0}
+.about-title{font:700 clamp(1.2rem,5vw,1.7rem) "Space Grotesk",sans-serif;letter-spacing:.1em;color:#a855f7;margin:0}
+.about-desc{margin:0;color:rgba(255,255,255,.65);font-size:.9rem;max-width:32ch}
+.about-cards{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;width:100%}
+.about-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:.9rem;text-align:left;display:flex;flex-direction:column;gap:.35rem}
+.about-card .lfi{font-size:1.4rem}
+.about-card b{color:#fff;font-size:.85rem}
+.about-card p{margin:0;color:rgba(255,255,255,.55);font-size:.75rem;line-height:1.5}
+/* cursor typewriter */
+.tw-cursor{display:inline-block;color:#a855f7;animation:twblink .7s step-end infinite;font-weight:300}
+@keyframes twblink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-cursor{animation:none}}
 
 /* dialog & toast bergaya NOVA (pengganti popup bawaan browser) */
 textarea{border:3px solid var(--ink);background:#fff;padding:.7rem;font:inherit;color:var(--ink);border-radius:0;resize:vertical;width:100%}
