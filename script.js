@@ -1443,42 +1443,51 @@ function startGridCanvas() {
   return () => cancelAnimationFrame(raf);
 }
 
-function wordRevealEffect(el, text) {
+function spotlightLoop(el, text) {
   if (!el) return;
   el.setAttribute("aria-label", text);
   el.innerHTML = "";
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduced) { el.textContent = text; return; }
   const words = text.split(" ");
   const spans = [];
-  // render semua kata sekaligus tapi dim, lalu spotlight satu per satu
   words.forEach((w, i) => {
-    if (i > 0) { const sp = document.createElement("span"); sp.textContent = " "; sp.className = "tw-sp"; el.append(sp); }
+    if (i > 0) el.append(document.createTextNode(" "));
     const s = document.createElement("span");
-    s.className = "tw-word tw-dim";
+    s.className = "tw-word";
     s.textContent = w;
     el.append(s);
     spans.push(s);
   });
-  // highlight tiap kata bergantian, lalu setelah selesai semua terang permanen
-  let i = 0;
-  const step = () => {
-    if (i > 0) spans[i-1].className = "tw-word tw-done";
-    if (i < spans.length) {
-      spans[i].className = "tw-word tw-active";
-      i++;
-      setTimeout(step, 320);
-    } else {
-      spans.forEach(s => s.className = "tw-word tw-done");
-    }
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduced) { spans.forEach((s) => s.classList.add("tw-active")); return; }
+  // bingkai sudut (viewfinder) yang berpindah dari kata ke kata
+  const frame = document.createElement("div");
+  frame.className = "tw-frame";
+  frame.innerHTML = '<i class="tw-c tw-tl"></i><i class="tw-c tw-tr"></i><i class="tw-c tw-bl"></i><i class="tw-c tw-br"></i>';
+  el.append(frame);
+  let i = -1, timer = null;
+  const place = (s) => {
+    const er = el.getBoundingClientRect(), sr = s.getBoundingClientRect();
+    frame.style.left = (sr.left - er.left - 8) + "px";
+    frame.style.top = (sr.top - er.top - 5) + "px";
+    frame.style.width = (sr.width + 16) + "px";
+    frame.style.height = (sr.height + 10) + "px";
   };
-  setTimeout(step, 200);
+  const tick = () => {
+    i = (i + 1) % spans.length;
+    spans.forEach((s, idx) => s.classList.toggle("tw-active", idx === i));
+    place(spans[i]);
+  };
+  const start = () => { if (timer) return; tick(); frame.classList.add("on"); timer = setInterval(tick, 650); };
+  const stop = () => { clearInterval(timer); timer = null; };
+  start();
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") stop(); else start(); });
+  window.addEventListener("resize", () => { if (i >= 0) place(spans[i]); });
 }
 
 function initLanding() {
   startGridCanvas();
   if (getToken()) { const e = $("#enter"); if (e) { e.href = "dashboard.html"; e.textContent = "BUKA APLIKASI"; } }
-  wordRevealEffect(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA");
+  spotlightLoop(document.querySelector(".ltitle"), "SELAMAT DATANG DI WEBSITE NOVA WAWA");
 }
 
 function initAbout() {

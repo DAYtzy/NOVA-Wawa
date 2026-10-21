@@ -226,14 +226,18 @@ body[data-page="landing"] .legal-links a,body[data-page="about"] .legal-links a{
 .about-card .lfi{font-size:1.4rem}
 .about-card b{color:#fff;font-size:.85rem}
 .about-card p{margin:0;color:rgba(255,255,255,.55);font-size:.75rem;line-height:1.5}
-/* animasi teks landing: spotlight kata per kata */
-.ltitle{font:700 clamp(.9rem,4vw,1.5rem) "Space Grotesk",sans-serif;letter-spacing:.05em;margin:0;color:#fff;line-height:1.6;text-align:center}
-.tw-sp{display:inline}
-.tw-word{display:inline;transition:color .15s,text-shadow .15s}
-.tw-dim{color:rgba(255,255,255,.18)}
-.tw-active{color:#fff;text-shadow:0 0 18px rgba(168,85,247,.9),0 0 6px rgba(168,85,247,.6)}
-.tw-done{color:rgba(255,255,255,.75);text-shadow:none}
-@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-word{transition:none;color:#fff!important;text-shadow:none!important}}
+/* animasi teks landing: bingkai sudut berpindah kata ke kata, kata non-aktif blur */
+.ltitle{font:700 clamp(.9rem,4vw,1.5rem) "Space Grotesk",sans-serif;letter-spacing:.04em;margin:0;color:#fff;line-height:1.9;text-align:center;position:relative}
+.tw-word{display:inline-block;color:rgba(255,255,255,.32);filter:blur(3px);transition:color .35s,filter .35s}
+.tw-word.tw-active{color:#fff;filter:blur(0)}
+.tw-frame{position:absolute;pointer-events:none;opacity:0;transition:left .45s cubic-bezier(.4,0,.2,1),top .45s cubic-bezier(.4,0,.2,1),width .45s cubic-bezier(.4,0,.2,1),height .45s cubic-bezier(.4,0,.2,1),opacity .3s}
+.tw-frame.on{opacity:1}
+.tw-c{position:absolute;width:10px;height:10px}
+.tw-tl{top:0;left:0;border-top:2px solid #5eead4;border-left:2px solid #5eead4}
+.tw-tr{top:0;right:0;border-top:2px solid #5eead4;border-right:2px solid #5eead4}
+.tw-bl{bottom:0;left:0;border-bottom:2px solid #5eead4;border-left:2px solid #5eead4}
+.tw-br{bottom:0;right:0;border-bottom:2px solid #5eead4;border-right:2px solid #5eead4}
+@media (prefers-reduced-motion:reduce){.lbtn{transition:none}.tw-word{filter:none!important;color:#fff!important;transition:none}.tw-frame{display:none}}
 
 /* dialog & toast bergaya NOVA (pengganti popup bawaan browser) */
 textarea{border:3px solid var(--ink);background:#fff;padding:.7rem;font:inherit;color:var(--ink);border-radius:0;resize:vertical;width:100%}
