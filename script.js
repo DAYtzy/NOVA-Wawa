@@ -1162,6 +1162,80 @@ async function initDashboard() {
   }
   $("#pwbtn").onclick = changePassword;
   $("#legalbtn").onclick = () => window.open("terms.html", "_blank", "noopener");
+  /* ----- tema tampilan: 5 pilihan siap pakai + custom (tersimpan per perangkat) ----- */
+  const THEMES = [
+    { id: "violet", name: "Ungu Nova", c1: "#8b5cf6", c2: "#22d3ee", bg: "#0a0a12" },
+    { id: "teal", name: "Midnight Teal", c1: "#10b981", c2: "#2dd4bf", bg: "#071414" },
+    { id: "ember", name: "Sunset Ember", c1: "#f97316", c2: "#fb7185", bg: "#140b08" },
+    { id: "rose", name: "Rose Noir", c1: "#ec4899", c2: "#c084fc", bg: "#120a14" },
+    { id: "light", name: "Arctic Light", c1: "#3b82f6", c2: "#0891b2", bg: "#f3f5fb" },
+  ];
+  function hex2hsl(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h = 0, s = 0; const l = (mx + mn) / 2;
+    if (mx !== mn) { const d = mx - mn; s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = (g - b) / d + (g < b ? 6 : 0); else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4; h /= 6; }
+    return [h * 360, s * 100, l * 100];
+  }
+  function hsl2hex(h, s, l) {
+    s /= 100; l /= 100;
+    const k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return "#" + [f(0), f(8), f(4)].map((x) => Math.round(255 * x).toString(16).padStart(2, "0")).join("");
+  }
+  const deriveAcc2 = (hex) => { try { const [h, s, l] = hex2hsl(hex); return hsl2hex((h + 150) % 360, Math.min(s, 85), Math.min(Math.max(l, 45), 68)); } catch { return "#22d3ee"; } };
+  function applyTheme(id, acc, acc2) {
+    if (id === "violet") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", id);
+    if (id === "custom") {
+      document.documentElement.style.setProperty("--c-acc", acc); document.documentElement.style.setProperty("--c-acc2", acc2);
+      localStorage.setItem("nova_theme_acc", acc); localStorage.setItem("nova_theme_acc2", acc2);
+    } else {
+      document.documentElement.style.removeProperty("--c-acc"); document.documentElement.style.removeProperty("--c-acc2");
+      localStorage.removeItem("nova_theme_acc"); localStorage.removeItem("nova_theme_acc2");
+    }
+    localStorage.setItem("nova_theme", id === "violet" ? "" : id);
+    $("#thmsub").textContent = id === "custom" ? "Custom" : (THEMES.find((x) => x.id === id) || {}).name || "Ungu Nova";
+  }
+  function openThemePicker() {
+    const cur = localStorage.getItem("nova_theme") || "violet";
+    const back = mk("div", null, "dlg-back"), box = mk("div", null, "dlg");
+    box.setAttribute("role", "dialog"); box.setAttribute("aria-modal", "true"); box.setAttribute("aria-labelledby", "thm-t");
+    const h = mk("h2", "Pilih tema"); h.id = "thm-t"; box.append(h);
+    box.append(mk("p", "Ubah tampilan NOVA WAWA sesuai selera. Tersimpan di perangkat ini.", "dlg-d"));
+    const grid = mk("div", null, "theme-grid");
+    const markSel = (btn) => grid.querySelectorAll(".theme-sw").forEach((x) => x.classList.toggle("sel", x === btn));
+    THEMES.forEach((t) => {
+      const b = mk("button", null, "theme-sw" + (cur === t.id ? " sel" : "")); b.type = "button";
+      const dot = mk("div", null, "tsw-dot"); dot.style.background = t.bg;
+      const i1 = document.createElement("i"), i2 = document.createElement("i"); i1.style.background = t.c1; i2.style.background = t.c2;
+      dot.append(i1, i2); b.append(dot, mk("span", t.name));
+      b.onclick = () => { applyTheme(t.id); markSel(b); };
+      grid.append(b);
+    });
+    const cb = mk("button", null, "theme-sw" + (cur === "custom" ? " sel" : "")); cb.type = "button";
+    const cdot = mk("div", "+", "tsw-dot tsw-cus");
+    cb.append(cdot, mk("span", "Custom"));
+    cb.onclick = () => {
+      const inp = document.createElement("input"); inp.type = "color"; inp.value = localStorage.getItem("nova_theme_acc") || "#8b5cf6";
+      inp.style.cssText = "position:fixed;opacity:0;pointer-events:none;left:-99px"; document.body.append(inp);
+      inp.addEventListener("input", () => { applyTheme("custom", inp.value, deriveAcc2(inp.value)); markSel(cb); });
+      inp.addEventListener("change", () => inp.remove());
+      inp.click();
+    };
+    grid.append(cb);
+    box.append(grid);
+    const row = mk("div", null, "dlg-b"), ok = mk("button", "Selesai", "btn"); ok.type = "button";
+    row.append(ok); box.append(row);
+    back.append(box); document.body.append(back);
+    const done = () => { document.removeEventListener("keydown", onKey, true); back.remove(); };
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); done(); } };
+    document.addEventListener("keydown", onKey, true);
+    ok.onclick = done;
+    back.addEventListener("pointerdown", (e) => { if (e.target === back) done(); });
+    ok.focus();
+  }
+  $("#thmbtn").onclick = openThemePicker;
+  (() => { const id = localStorage.getItem("nova_theme") || "violet"; $("#thmsub").textContent = id === "custom" ? "Custom" : (THEMES.find((x) => x.id === id) || {}).name || "Ungu Nova"; })();
   $("#verifybtn").onclick = async () => { try { await api("/email/resend", { method: "POST" }); toast("Tautan verifikasi dikirim. Cek kotak masuk dan folder spam."); } catch (e) { toast(e.message); } };
   $("#delbtn").onclick = async () => {
     const r = await dialog({ title: "Hapus akun?", desc: "Akun, pesan, kontak, story, foto dan video, serta grup dan saluran milikmu dihapus permanen. Tidak bisa dibatalkan.", fields: [{ name: "pw", label: "Masukkan password untuk konfirmasi", type: "password", auto: "current-password", required: true }], ok: "Hapus permanen" });

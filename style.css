@@ -1,4 +1,23 @@
 :root{--bg:#0a0a12;--surf:#15151f;--surf2:#1d1d2b;--bd:rgba(255,255,255,.1);--ink:#f1f1f6;--mut:#8d8da3;--acc:#8b5cf6;--acc2:#22d3ee;--red:#f4495f;--grn:#34d399;--blue:#22d3ee;--r:14px;--rs:10px;--sh:0 10px 30px rgba(0,0,0,.45)}
+/* tema: Midnight Teal */
+:root[data-theme="teal"]{--bg:#071414;--surf:#0e1f1e;--surf2:#15302e;--bd:rgba(255,255,255,.1);--acc:#10b981;--acc2:#2dd4bf}
+/* tema: Sunset Ember */
+:root[data-theme="ember"]{--bg:#140b08;--surf:#1f1310;--surf2:#2b1b16;--bd:rgba(255,255,255,.1);--acc:#f97316;--acc2:#fb7185}
+/* tema: Rose Noir */
+:root[data-theme="rose"]{--bg:#120a14;--surf:#1c1020;--surf2:#271530;--bd:rgba(255,255,255,.1);--acc:#ec4899;--acc2:#c084fc}
+/* tema: Arctic Light (satu-satunya tema terang) */
+:root[data-theme="light"]{--bg:#f3f5fb;--surf:#ffffff;--surf2:#eef1f8;--bd:rgba(15,23,42,.1);--ink:#15171f;--mut:#667;--acc:#3b82f6;--acc2:#0891b2}
+:root[data-theme="light"] .ic.seal{color:#0891b2}
+/* tema: Custom — JS mengisi --acc/--acc2 lewat inline style di :root */
+:root[data-theme="custom"]{--acc:var(--c-acc,#8b5cf6);--acc2:var(--c-acc2,#22d3ee)}
+/* pemilih tema */
+.theme-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-top:.3rem}
+.theme-sw{display:grid;justify-items:center;gap:.45rem;background:none;border:0;padding:0;cursor:pointer;color:var(--ink);font:700 .72rem "JetBrains Mono",monospace}
+.theme-sw .tsw-dot{width:52px;height:52px;border-radius:50%;border:2px solid var(--bd);display:grid;grid-template-columns:1fr 1fr;overflow:hidden;transition:transform .15s,border-color .15s}
+.theme-sw .tsw-dot i{display:block}
+.theme-sw.sel .tsw-dot{border-color:var(--acc);transform:scale(1.08);box-shadow:0 0 0 3px rgba(139,92,246,.25)}
+.theme-sw:active .tsw-dot{transform:scale(.95)}
+.theme-sw .tsw-cus{display:grid;place-items:center;font-size:1.3rem}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%}
 body{background:var(--bg);color:var(--ink);font:500 1rem/1.45 "JetBrains Mono",monospace}
