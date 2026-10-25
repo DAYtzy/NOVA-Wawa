@@ -125,9 +125,21 @@ def is_gray(u):
 
 
 def is_yellow(u):
-    """Centang kuning: murni titel, otomatis didapat semua pengguna baru saat daftar, kecuali dicabut owner."""
-    v = _cache["bdg"].get(u.player_id, {}).get("yellow")
-    return True if v is None else v
+    """Centang kuning: murni titel, diberi otomatis hanya saat daftar (lihat /api/register), bukan untuk akun lama. Owner bisa cabut."""
+    return bool(_cache["bdg"].get(u.player_id, {}).get("yellow"))
+
+
+def badge_color(u):
+    """Centang mana yang ditampilkan kalau beberapa aktif sekaligus: cuma satu per orang, prioritas biru > merah > abu-abu > kuning."""
+    if is_verified(u):
+        return "blue"
+    if is_red(u):
+        return "red"
+    if is_gray(u):
+        return "gray"
+    if is_yellow(u):
+        return "yellow"
+    return None
 
 
 def is_staff(u):
@@ -277,7 +289,7 @@ def prof(db, ids):
 
 def pub(u, pr, mine=False):
     d = pr.get(u.player_id, EMPTY)
-    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u), "mod": is_mod(u), "cc": is_cc(u), "red": is_red(u), "gray": is_gray(u), "yellow": is_yellow(u)}
+    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u), "mod": is_mod(u), "cc": is_cc(u), "red": is_red(u), "gray": is_gray(u), "yellow": is_yellow(u), "badge": badge_color(u)}
     if not mine:
         o.pop("birth_year", None)  # tahun lahir hanya terlihat oleh pemilik akun
     if mine:
@@ -346,6 +358,7 @@ def register():
             db.add(u)
             try:
                 db.commit()
+                set_badge(db, u.player_id, yellow=True)  # centang kuning: hanya pengguna baru yang daftar lewat sini, bukan akun lama
                 sent = send_verify(u)
                 return jsonify(token=make_token(u), user=u.public(), verify_sent=sent), 201
             except IntegrityError:
@@ -798,7 +811,7 @@ def adm_users(db, u):
         ls = ext[x.player_id].last_seen if x.player_id in ext else None
         out.append({"player_id": x.player_id, "full_name": x.full_name, "created_at": iso(x.created_at), "last_seen": iso(ls),
                     "online": bool(ls and (now - ls).total_seconds() < 90), "verified": is_verified(x),
-                    "owner": is_owner(x), "mod": is_mod(x), "cc": is_cc(x), "red": is_red(x), "gray": is_gray(x), "yellow": is_yellow(x), "banned": x.player_id in _cache["banned"]})
+                    "owner": is_owner(x), "mod": is_mod(x), "cc": is_cc(x), "red": is_red(x), "gray": is_gray(x), "yellow": is_yellow(x), "badge": badge_color(x), "banned": x.player_id in _cache["banned"]})
     return jsonify(users=out)
 
 
