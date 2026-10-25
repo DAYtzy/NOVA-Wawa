@@ -7,7 +7,7 @@
 :root[data-theme="rose"]{--bg:#120a14;--surf:#1c1020;--surf2:#271530;--bd:rgba(255,255,255,.1);--acc:#ec4899;--acc2:#c084fc}
 /* tema: Arctic Light (satu-satunya tema terang) */
 :root[data-theme="light"]{--bg:#f3f5fb;--surf:#ffffff;--surf2:#eef1f8;--bd:rgba(15,23,42,.1);--ink:#15171f;--mut:#667;--acc:#3b82f6;--acc2:#0891b2}
-:root[data-theme="light"] .ic.seal{color:#0891b2}
+:root[data-theme="light"] .ic.seal.blue{color:#0891b2}
 /* tema: Custom — JS mengisi --acc/--acc2 lewat inline style di :root */
 :root[data-theme="custom"]{--acc:var(--c-acc,#8b5cf6);--acc2:var(--c-acc2,#22d3ee)}
 /* pemilih tema */
@@ -46,7 +46,10 @@ input:focus-visible,button:focus-visible,.btn:focus-visible,.item:focus-visible{
 .link{color:var(--mut)}
 /* ikon */
 .ic{width:1.35em;height:1.35em;flex:none;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.ic.seal{width:1.05em;height:1.05em;margin-left:.3em;vertical-align:-.15em}
+.ic.seal{width:1.05em;height:1.05em;margin-left:.3em;vertical-align:-.15em;color:var(--acc2)}
+.ic.seal.red{color:var(--red)}
+.ic.seal.gray{color:var(--mut)}
+.ic.seal.yellow{color:#eab308}
 .btn .ic{width:1.15em;height:1.15em;margin-right:.45em;vertical-align:-.2em}
 /* header */
 .top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:.6rem;min-height:56px;background:var(--surf);border-bottom:1px solid var(--bd);padding:.5rem 1rem}
@@ -134,7 +137,7 @@ main{max-width:640px;margin:0 auto;padding:1rem 1rem 8rem}
 .vbc{position:absolute;right:-2px;bottom:2px;width:34px;height:34px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.6))}
 .nm{display:flex;align-items:center;gap:.3rem;font:700 1.3rem "Space Grotesk",sans-serif;max-width:100%}
 .nm b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.nm .ic.seal{width:1.3rem;height:1.3rem;margin:0;color:var(--acc2)}
+.nm .ic.seal{width:1.3rem;height:1.3rem;margin:0}
 .pen{background:none;border:0;padding:.2rem;cursor:pointer}
 .pid{font-size:1.1rem;font-weight:700;letter-spacing:.1em;color:var(--mut)}
 .pstat{margin:0;font-weight:700}
@@ -362,6 +365,7 @@ textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 
 /* lencana owner + panel owner */
 .own{font-style:normal;font-size:.62rem;font-weight:700;background:var(--red);color:#fff;border-radius:4px;padding:0 .35rem;margin-left:.4rem;vertical-align:.1em;letter-spacing:.06em}
+.own.cc{background:linear-gradient(135deg,var(--acc),var(--acc2))}
 .astats{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:.4rem}
 .astat{background:var(--surf);border:1px solid var(--bd);border-radius:var(--r);padding:.6rem .3rem;text-align:center}
 .astat b{display:block;font:700 1.5rem "Space Grotesk",sans-serif}

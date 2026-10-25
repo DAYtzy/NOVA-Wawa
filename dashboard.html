@@ -41,7 +41,7 @@
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
 <symbol id="i-once" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3 2.6"/><path d="M10.5 9.5L13 8v8"/></symbol>
 <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></symbol>
-<symbol id="i-seal" viewBox="0 0 24 24"><path d="M12 2l2.4 2 3.1-.3 1 3 2.7 1.6-1 3 1 3-2.7 1.6-1 3-3.1-.3L12 22l-2.4-2-3.1.3-1-3L2.8 15.7l1-3-1-3L6.5 8l1-3 3.1.3z" fill="#22d3ee" stroke="none"/><path d="M8 12.3l3 3 5-6" fill="none" stroke="#fff" stroke-width="2.6"/></symbol>
+<symbol id="i-seal" viewBox="0 0 24 24"><path d="M12 2l2.4 2 3.1-.3 1 3 2.7 1.6-1 3 1 3-2.7 1.6-1 3-3.1-.3L12 22l-2.4-2-3.1.3-1-3L2.8 15.7l1-3-1-3L6.5 8l1-3 3.1.3z" fill="currentColor" stroke="none"/><path d="M8 12.3l3 3 5-6" fill="none" stroke="#fff" stroke-width="2.6"/></symbol>
 <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
 <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
@@ -89,7 +89,7 @@
       <div class="pbody">
         <div class="pav"><button id="pavb" class="avbtn" aria-label="Ganti foto profil"><span id="pav"></span></button>
           <svg id="pvb" class="vbc" viewBox="0 0 24 24" role="img" aria-label="Akun terverifikasi" hidden><circle cx="12" cy="12" r="12" fill="#22d3ee"/><path d="M7 12.5l3.2 3.2 6.3-6.6" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="nm"><b id="pname"></b><svg id="pver" class="ic seal" hidden><use href="#i-seal"/></svg><i id="pown" class="own" hidden>OWNER</i><button id="pst" class="pen" aria-label="Edit status"><svg class="ic"><use href="#i-edit"/></svg></button></div>
+        <div class="nm"><b id="pname"></b><svg id="pver" class="ic seal blue" hidden><use href="#i-seal"/></svg><svg id="pred" class="ic seal red" hidden><use href="#i-seal"/></svg><svg id="pgray" class="ic seal gray" hidden><use href="#i-seal"/></svg><svg id="pyellow" class="ic seal yellow" hidden><use href="#i-seal"/></svg><i id="pown" class="own" hidden>OWNER</i><button id="pst" class="pen" aria-label="Edit status"><svg class="ic"><use href="#i-edit"/></svg></button></div>
         <div id="pid" class="pid"></div>
         <p id="pstat" class="pstat"></p><small id="pyear"></small>
         <button id="pedit" class="outline"><svg class="ic"><use href="#i-edit"/></svg>Edit Status</button>
@@ -173,6 +173,7 @@
   <div class="fp"><svg class="ic"><use href="#i-fp"/></svg></div><h2>Aplikasi terkunci</h2>
   <p class="hint">Letakkan jari di sensor, atau pakai pola/PIN HP</p>
   <p id="lockerr" class="msg"></p><button id="unlock" class="btn"><svg class="ic"><use href="#i-fp"/></svg>Buka dengan sidik jari</button>
+  <button id="lockout" class="lbtn ghost">Gak bisa verifikasi? Keluar &amp; masuk ulang</button>
 </div>
 <div id="incoming" class="incoming" hidden>
   <div id="iav" class="cav"></div>

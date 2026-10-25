@@ -133,6 +133,14 @@ class UserFlag(Base):  # centang biru manual dan status blokir, diatur owner
     banned = Column(Boolean, default=False)
 
 
+class BadgeFlag(Base):  # centang warna lain (selain biru di UserFlag): merah & abu-abu manual oleh owner, kuning otomatis saat daftar (tabel baru biar gak perlu ALTER tabel lama)
+    __tablename__ = "badge_flags"
+    player_id = Column(String(12), primary_key=True)
+    red = Column(Boolean, nullable=True)     # True = diberi owner, selain itu dianggap tidak ada
+    gray = Column(Boolean, nullable=True)    # True = diberi owner, selain itu dianggap tidak ada
+    yellow = Column(Boolean, nullable=True)  # None = aturan bawaan (otomatis dapat saat daftar), False = dicabut owner
+
+
 class Media(Base):  # foto/video di chat & status. File di Cloudinary (provider "cld") atau, khusus foto kecil, di database ("db")
     __tablename__ = "media"
     id = Column(String(24), primary_key=True)

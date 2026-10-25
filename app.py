@@ -10,7 +10,7 @@ from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
 import mailer, push
 from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -75,7 +75,7 @@ def migrate_ids():
 migrate_ids()
 
 
-_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set(), "mods": set()}
+_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set(), "mods": set(), "ccs": set(), "bdg": {}}
 
 
 def flags(db):
@@ -84,10 +84,13 @@ def flags(db):
         try:
             rows = db.query(UserFlag).all()
             a = db.get(AppSetting, "announce")
+            staff = db.query(StaffRole).all()
             _cache.update(t=time.time(), banned={r.player_id for r in rows if r.banned},
                           vfy={r.player_id: r.verified for r in rows if r.verified is not None},
                           announce=(a.value if a and a.value else ""), pwchg={r.player_id for r in db.query(PwChange)},
-                          mods={r.player_id for r in db.query(StaffRole).filter(StaffRole.role == "mod")})
+                          mods={r.player_id for r in staff if r.role == "mod"},
+                          ccs={r.player_id for r in staff if r.role == "cc"},
+                          bdg={r.player_id: {"red": r.red, "gray": r.gray, "yellow": r.yellow} for r in db.query(BadgeFlag)})
             if _cache["first"] is None:
                 _cache["first"] = db.query(func.min(User.id)).filter(User.player_id != OFFICIAL).scalar()
         except Exception as e:
@@ -104,6 +107,27 @@ def is_owner(u):
 
 def is_mod(u):
     return u.player_id in _cache["mods"] and not is_owner(u)
+
+
+def is_cc(u):
+    """Co-Chief: gelar kepercayaan dari owner, murni titel (tidak menambah kewenangan)."""
+    return u.player_id in _cache["ccs"] and not is_owner(u)
+
+
+def is_red(u):
+    """Centang merah: murni titel, diberi owner."""
+    return bool(_cache["bdg"].get(u.player_id, {}).get("red"))
+
+
+def is_gray(u):
+    """Centang abu-abu: murni titel, diberi owner."""
+    return bool(_cache["bdg"].get(u.player_id, {}).get("gray"))
+
+
+def is_yellow(u):
+    """Centang kuning: murni titel, otomatis didapat semua pengguna baru saat daftar, kecuali dicabut owner."""
+    v = _cache["bdg"].get(u.player_id, {}).get("yellow")
+    return True if v is None else v
 
 
 def is_staff(u):
@@ -253,7 +277,7 @@ def prof(db, ids):
 
 def pub(u, pr, mine=False):
     d = pr.get(u.player_id, EMPTY)
-    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u), "mod": is_mod(u)}
+    o = {**u.public(), "verified": is_verified(u), "owner": is_owner(u), "mod": is_mod(u), "cc": is_cc(u), "red": is_red(u), "gray": is_gray(u), "yellow": is_yellow(u)}
     if not mine:
         o.pop("birth_year", None)  # tahun lahir hanya terlihat oleh pemilik akun
     if mine:
@@ -721,7 +745,7 @@ def purge_user(db, pid):
     for M, col in ID_COLS:
         c = getattr(M, col)
         db.query(M).filter(c == pid).delete(synchronize_session=False)
-    for M, col in ((UserFlag, "player_id"), (EmailOk, "player_id"), (PrivPref, "player_id"), (PushSub, "player_id"), (PwChange, "player_id"),
+    for M, col in ((UserFlag, "player_id"), (BadgeFlag, "player_id"), (EmailOk, "player_id"), (PrivPref, "player_id"), (PushSub, "player_id"), (PwChange, "player_id"),
                    (Block, "owner"), (Block, "target"), (Report, "reporter"), (StaffRole, "player_id")):
         c = getattr(M, col)
         db.query(M).filter(c == pid).delete(synchronize_session=False)
@@ -774,7 +798,7 @@ def adm_users(db, u):
         ls = ext[x.player_id].last_seen if x.player_id in ext else None
         out.append({"player_id": x.player_id, "full_name": x.full_name, "created_at": iso(x.created_at), "last_seen": iso(ls),
                     "online": bool(ls and (now - ls).total_seconds() < 90), "verified": is_verified(x),
-                    "owner": is_owner(x), "mod": is_mod(x), "banned": x.player_id in _cache["banned"]})
+                    "owner": is_owner(x), "mod": is_mod(x), "cc": is_cc(x), "red": is_red(x), "gray": is_gray(x), "yellow": is_yellow(x), "banned": x.player_id in _cache["banned"]})
     return jsonify(users=out)
 
 
@@ -787,6 +811,15 @@ def set_flag(db, pid, **kw):
     _cache["t"] = 0.0  # muat ulang cache pada permintaan berikutnya
 
 
+def set_badge(db, pid, **kw):
+    f = db.get(BadgeFlag, pid) or BadgeFlag(player_id=pid)
+    for k, v in kw.items():
+        setattr(f, k, v)
+    db.add(f)
+    db.commit()
+    _cache["t"] = 0.0
+
+
 @app.post("/api/admin/users/<pid>/verify")
 @owner_only
 def adm_verify(db, u, pid):
@@ -796,6 +829,23 @@ def adm_verify(db, u, pid):
     val = bool((request.get_json(silent=True) or {}).get("value"))
     set_flag(db, t.player_id, verified=val)
     audit(db, u, "verify_on" if val else "verify_off", t.player_id, t.full_name)
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/users/<pid>/badge")
+@owner_only
+def adm_badge(db, u, pid):
+    """Centang merah/abu-abu/kuning. Murni titel, tidak menambah kewenangan. Hanya owner."""
+    t, err = target_user(db, u, pid, allow_self=True)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    color = body.get("color")
+    if color not in ("red", "gray", "yellow"):
+        return jsonify(error="Warna tidak dikenal."), 400
+    val = bool(body.get("value"))
+    set_badge(db, t.player_id, **{color: val})
+    audit(db, u, "badge_" + color + ("_on" if val else "_off"), t.player_id, t.full_name)
     return jsonify(ok=True)
 
 
@@ -820,13 +870,38 @@ def adm_role(db, u, pid):
         return err
     on = bool((request.get_json(silent=True) or {}).get("value"))
     cur = db.get(StaffRole, t.player_id)
-    if on and not cur:
-        db.add(StaffRole(player_id=t.player_id, role="mod", by=u.player_id))
-    elif not on and cur:
+    if on:
+        if cur:
+            cur.role = "mod"
+        else:
+            db.add(StaffRole(player_id=t.player_id, role="mod", by=u.player_id))
+    elif cur and cur.role == "mod":
         db.delete(cur)
     db.commit()
     _cache["t"] = 0.0
     audit(db, u, "mod_on" if on else "mod_off", t.player_id, t.full_name)
+    return jsonify(ok=True)
+
+
+@app.post("/api/admin/users/<pid>/cc")
+@owner_only
+def adm_cc(db, u, pid):
+    """Beri/cabut gelar Co-Chief (CC). Murni titel, tidak memberi kewenangan tambahan. Hanya owner."""
+    t, err = target_user(db, u, pid)
+    if err:
+        return err
+    on = bool((request.get_json(silent=True) or {}).get("value"))
+    cur = db.get(StaffRole, t.player_id)
+    if on:
+        if cur:
+            cur.role = "cc"
+        else:
+            db.add(StaffRole(player_id=t.player_id, role="cc", by=u.player_id))
+    elif cur and cur.role == "cc":
+        db.delete(cur)
+    db.commit()
+    _cache["t"] = 0.0
+    audit(db, u, "cc_on" if on else "cc_off", t.player_id, t.full_name)
     return jsonify(ok=True)
 
 
