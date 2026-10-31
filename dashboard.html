@@ -21,6 +21,8 @@
 <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6 7-6s7 2.5 7 6"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14c3 0 5 2 5 5"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+<symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
 <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3L3 11l7 3 3 7z"/></symbol>
 <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l5 5 9-10"/></symbol>
@@ -92,7 +94,7 @@
         <div class="nm"><b id="pname"></b><svg id="pver" class="ic seal" hidden><use href="#i-seal"/></svg><i id="pown" class="own" hidden>OWNER</i><button id="pst" class="pen" aria-label="Edit status"><svg class="ic"><use href="#i-edit"/></svg></button></div>
         <div id="pid" class="pid"></div>
         <p id="pstat" class="pstat"></p><small id="pyear"></small>
-        <button id="pedit" class="outline"><svg class="ic"><use href="#i-edit"/></svg>Edit Status</button>
+        <button id="pedit" class="outline"><svg class="ic"><use href="#i-edit"/></svg>Edit Profil</button>
       </div>
     </div>
     <div class="card2 sw"><svg class="ic lead"><use href="#i-globe"/></svg><span><b>Profil Publik</b><small>Siapa pun bisa melihat foto dan statusmu</small></span><button id="swpub" class="swb" role="switch" aria-checked="true" aria-label="Profil publik"></button></div>
@@ -155,7 +157,8 @@
     <button type="button" id="attach" class="cb" aria-label="Kirim foto atau video" title="Kirim foto atau video"><svg class="ic"><use href="#i-clip"/></svg></button>
     <input id="text" placeholder="Ketik pesan..." autocomplete="off" aria-label="Pesan">
     <button type="button" id="mic" class="cb" aria-label="Dikte suara" title="Dikte suara"><svg class="ic"><use href="#i-mic"/></svg></button>
-    <button type="submit" id="sendb" class="cb go" aria-label="Kirim" hidden><svg class="ic"><use href="#i-send"/></svg></button>
+    <button type="button" id="vnrec" class="cb" aria-label="Rekam pesan suara" title="Rekam pesan suara"><svg class="ic"><use href="#i-wave"/></svg></button>
+    <button type="submit" id="sendb"class="cb go" aria-label="Kirim" hidden><svg class="ic"><use href="#i-send"/></svg></button>
   </form>
 </section>
 <button id="fabt" class="fab t" aria-label="Status teks" title="Status teks" hidden><svg class="ic"><use href="#i-type"/></svg></button>

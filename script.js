@@ -92,7 +92,10 @@ async function initDashboard() {
   const stkId = (b) => { const m = STK.exec(b || ""); return m && m[1]; };
   const MED = /^\[med:(i|v)(o?):([0-9a-f]{24})\]$/;
   const medOf = (b) => { const m = MED.exec(b || ""); return m && { kind: m[1] === "v" ? "video" : "image", once: !!m[2], id: m[3] }; };
-  const lastText = (b) => { const k = medOf(b); return k ? (k.kind === "video" ? "Video" : "Foto") + (k.once ? " 1x lihat" : "") : stkId(b) ? "Stiker" : b; };
+  const DEL = "[del]";  /* penanda isi pesan yang sudah dihapus pengirimnya */
+  const VN = /^\[vn:([0-9a-f]{24})\]$/;
+  const vnOf = (b) => { const m = VN.exec(b || ""); return m && { id: m[1] }; };
+  const lastText = (b) => { if (b === DEL) return "Pesan dihapus"; if (VN.test(b || "")) return "Pesan suara"; const k = medOf(b); return k ? (k.kind === "video" ? "Video" : "Foto") + (k.once ? " 1x lihat" : "") : stkId(b) ? "Stiker" : b; };
   const fmtDur = (n) => Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
   const sha24 = async (t) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].slice(0, 12).map((x) => x.toString(16).padStart(2, "0")).join("");
   /* Kotak dialog bergaya NOVA, pengganti prompt() bawaan browser. Hasil: objek isian, atau null kalau dibatalkan. */
@@ -342,18 +345,36 @@ async function initDashboard() {
   }
   $("#text").addEventListener("keydown", (e) => { if (e.key === "Escape" && st.replyTo) clearReply(); });
   let menuBusy = false;
+  /* ubah gelembung jadi "Pesan ini telah dihapus" (dipakai saat kita menghapus, saat lawan menghapus, dan saat riwayat dimuat) */
+  function markDeleted(d) {
+    d.classList.remove("sticker", "media"); d.classList.add("deleted");
+    const box = d.firstElementChild;
+    [...box.children].forEach((c) => { if (!c.classList.contains("who")) c.remove(); });
+    box.append(mk("span", "Pesan ini telah dihapus", "delt"));
+    if (d._m) { d._m.body = DEL; d._m.reply = undefined; }
+  }
   async function bubbleMenu(d) {
-    const m = d._m; if (!m || menuBusy) return;
+    const m = d._m; if (!m || menuBusy || m.body === DEL) return;
     menuBusy = true;
     try {
-      const plain = !stkId(m.body) && !medOf(m.body), acts = [];
+      const plain = !stkId(m.body) && !medOf(m.body) && !vnOf(m.body), acts = [];
       if (!$("#form").hidden) acts.push({ key: "reply", label: "Balas" });
       if (plain) acts.push({ key: "copy", label: "Salin teks" });
+      if (m.sender === me.player_id && m.id && !m.pending) acts.push({ key: "del", label: "Hapus untuk semua" });
       if (!acts.length) return;
       const a = await dialog({ title: m.sender === me.player_id ? "Pesanmu" : nameOf(m.sender), desc: lastText(m.body).slice(0, 120), ok: null, actions: acts });
       if (!a) return;
       if (a.action === "reply") setReply(m);
       else if (a.action === "copy") navigator.clipboard.writeText(m.body).then(() => toast("Teks disalin"), () => toast("Tidak bisa menyalin teks"));
+      else if (a.action === "del") {
+        const ok = await dialog({ title: "Hapus pesan?", desc: "Pesan ini akan hilang untuk semua orang di chat ini.", ok: "Hapus" });
+        if (!ok) return;
+        try {
+          await api("/messages/" + m.id + "/delete", { method: "POST" });
+          if (st.last[m.to] === m.body) st.last[m.to] = DEL;
+          markDeleted(d); render();
+        } catch (e) { toast("Gagal menghapus: " + e.message); }
+      }
     } finally { menuBusy = false; }
   }
   function bubbleGestures(d) {
@@ -394,21 +415,23 @@ async function initDashboard() {
   function addMsg(m) {
     const mine = m.sender === me.player_id, key = isRoom(m.to) || mine ? m.to : m.sender;
     st.last[key] = m.body; st.lastT[key] = m.t;
-    const r = roomOf(st.cur || ""), sid = stkId(m.body), md = medOf(m.body), d = mk("div", null, "bub " + (mine ? "out" : "in") + (sid ? " sticker" : "") + (md ? " media" : "")), box = mk("div"), mt = mk("div", null, "mt");
+    const r = roomOf(st.cur || ""), sid = stkId(m.body), md = medOf(m.body), vn = vnOf(m.body), d = mk("div", null, "bub " + (mine ? "out" : "in") + (sid ? " sticker" : "") + (md ? " media" : "")), box = mk("div"), mt = mk("div", null, "mt");
     if (!mine && r && r.kind === "group") box.append(mk("small", nameOf(m.sender), "who"));
     if (m.reply) box.append(quoteEl(m.reply));
     if (sid) { const im = mk("img", null, "smsg"); im.src = m.local || "/api/stickers/" + sid; im.alt = "Stiker"; box.append(im); }
     else if (md) box.append(...mediaBox(m, md));
+    else if (vn) box.append(voiceEl(m, vn));
     else box.append(mk("span", m.body));
     mt.append(mk("time", tm(m.t)));
     if (mine) { d.dataset.to = m.to; d.dataset.t = m.t; mt.append(tick(m)); }
     d.append(box, mt);
     d._m = m; if (m.id) d.dataset.id = m.id; bubbleGestures(d);
+    if (m.body === DEL) markDeleted(d);
     $("#msgs").append(d); $("#msgs").scrollTop = 1e9;
     return d;
   }
   async function open(p) {
-    clearReply(); st.cur = p; st.unread[p] = 0;
+    clearReply(); cancelVoice(); st.cur = p; st.unread[p] = 0;
     const r = roomOf(p);
     $("#rtitle").textContent = nameOf(p);
     const ct = contact(p); if (ct && ct.owner) $("#rtitle").append(mk("i", "OWNER", "own")); if (p === OFFICIAL) $("#rtitle").append(mk("i", "RESMI", "own"));
@@ -421,7 +444,7 @@ async function initDashboard() {
     (await api("/history?peer=" + encodeURIComponent(p))).messages.forEach(addMsg);
     render();
   }
-  $("#back").onclick = () => { st.cur = null; show(st.tab); };
+  $("#back").onclick = () => { cancelVoice(); if (curAud) curAud.pause(); st.cur = null; show(st.tab); };
   $("#form").onsubmit = async (e) => {
     e.preventDefault();
     const v = $("#text").value.trim();
@@ -435,7 +458,7 @@ async function initDashboard() {
       el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
     } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Pesan gagal terkirim: " + err.message); }
   };
-  const upd = () => { const has = $("#text").value.trim().length > 0; $("#sendb").hidden = !has; $("#mic").hidden = has; };
+  const upd = () => { const has = $("#text").value.trim().length > 0; $("#sendb").hidden = !has; $("#mic").hidden = has; $("#vnrec").hidden = has; };
   $("#text").oninput = upd;
   const EMO = "😀😃😄😁😆😅😂🤣🙂😉😊😇🥰😍😘😋😎🤩🥳😏😒😞😔😢😭😤😠🤯😱😳🤔🙄😴🤒🤢🙏👍👎👏🙌💪👀🔥✨🎉💯❤️💔💙💚💛🧡💜🖤".match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu) || [];
   let trayTab = "emoji";
@@ -503,6 +526,76 @@ async function initDashboard() {
     rec.onend = () => { $("#mic").classList.remove("rec"); rec = null; };
     rec.start();
   };
+  /* ----- pesan suara: pemutar di gelembung + perekam ----- */
+  let curAud = null;
+  function voiceEl(m, vn) {
+    const wrap = mk("div", null, "vnb"), btn = mk("button", null, "vn-play"), bar = mk("div", null, "vn-bar"), fill = mk("i"), tt = mk("small", "0:00", "vn-t");
+    btn.type = "button"; btn.setAttribute("aria-label", "Putar pesan suara"); btn.append(ic("play")); bar.append(fill); wrap.append(btn, bar, tt);
+    let a = null, dur = 0;
+    const setT = (s) => { tt.textContent = fmtDur(Math.max(0, Math.round(s))); };
+    const icon = (playing) => { btn.replaceChildren(ic(playing ? "pause" : "play")); btn.setAttribute("aria-label", playing ? "Jeda" : "Putar pesan suara"); };
+    const total = () => (a && isFinite(a.duration) && a.duration > 0 ? a.duration : dur);
+    const ready = (meta) => {
+      if (!meta || meta.missing || !meta.url) { wrap.replaceChildren(mk("div", "Pesan suara tidak tersedia", "mph")); return; }
+      dur = meta.dur || 0; setT(dur);
+      btn.onclick = () => {
+        if (!a) {
+          a = new Audio(meta.url); a.preload = "auto";
+          a.ontimeupdate = () => { const d = total(); fill.style.width = d ? Math.min(100, (a.currentTime / d) * 100) + "%" : "0"; setT(a.currentTime); };
+          a.onplay = () => icon(true); a.onpause = () => icon(false);
+          a.onended = () => { fill.style.width = "0"; setT(dur); icon(false); };
+          a.onerror = () => { icon(false); toast("Tidak bisa memutar pesan suara"); };
+        }
+        if (a.paused) { if (curAud && curAud !== a) curAud.pause(); curAud = a; a.play().catch(() => toast("Tidak bisa memutar pesan suara")); }
+        else a.pause();
+      };
+      bar.onclick = (e) => { const d = total(); if (!a || !d) return; const r = bar.getBoundingClientRect(); a.currentTime = d * Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+    };
+    if (m.local) ready(m.local); else needMeta(vn.id, ready);
+    return wrap;
+  }
+  let vrec = null;
+  const cancelVoice = () => { if (vrec) vrec.cancel(); };
+  async function startVoice() {
+    if (!st.cur || vrec) return;
+    if (!navigator.mediaDevices || !window.MediaRecorder) return toast("Browser ini belum mendukung rekam suara.");
+    let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { return toast("Izin mikrofon ditolak."); }
+    const mime = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
+    const maxSec = /mp4/.test(mime) ? 45 : 90;  // mp4 (Safari) lebih boros ukuran, jadi dibatasi lebih pendek
+    let mr; try { mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 }); }
+    catch { stream.getTracks().forEach((t) => t.stop()); return toast("Rekam suara tidak bisa dimulai di browser ini."); }
+    const chunks = [], to = st.cur, t0 = Date.now(), form = $("#form");
+    const bar = mk("div", null, "recbar"), tmr = mk("b", "0:00"), no = mk("button", null, "hb"), go = mk("button", null, "cb go");
+    no.type = go.type = "button"; no.setAttribute("aria-label", "Batalkan rekaman"); go.setAttribute("aria-label", "Kirim pesan suara");
+    no.append(ic("trash")); go.append(ic("send"));
+    bar.append(no, mk("i", null, "rdot"), tmr, mk("span", "Merekam... maks " + maxSec + " dtk", "rhint"), go);
+    form.classList.add("vrec"); form.before(bar);
+    let sendIt = false;
+    const secs = () => Math.round((Date.now() - t0) / 1000);
+    const iv = setInterval(() => { tmr.textContent = fmtDur(secs()); if (secs() >= maxSec) { sendIt = true; stop(); } }, 250);
+    const stop = () => { if (mr.state !== "inactive") mr.stop(); };
+    vrec = { cancel: () => { sendIt = false; stop(); } };
+    no.onclick = vrec.cancel; go.onclick = () => { sendIt = true; stop(); };
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = async () => {
+      clearInterval(iv); stream.getTracks().forEach((t) => t.stop()); bar.remove(); form.classList.remove("vrec"); vrec = null;
+      if (!sendIt) return;
+      const dur = Math.max(1, Math.min(maxSec, secs()));
+      if (secs() < 1) return toast("Rekaman terlalu pendek.");
+      const blob = new Blob(chunks, { type: mr.mimeType || mime || "audio/webm" }), url = URL.createObjectURL(blob);
+      const el = addMsg({ sender: me.player_id, to, kind: "text", body: "[vn:" + "0".repeat(24) + "]", local: { kind: "audio", url, dur }, t: new Date().toISOString(), pending: true });
+      try {
+        const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error("Gagal membaca rekaman")); fr.readAsDataURL(blob); });
+        if (data.length > 690000) throw new Error("rekaman terlalu besar, coba lebih pendek");
+        const { id } = await api("/voice", { method: "POST", body: JSON.stringify({ data, dur }) });
+        const m = await send(to, "text", "[vn:" + id + "]");
+        st.last[to] = m.body; st.lastT[to] = m.t; el.dataset.t = m.t; el.dataset.id = m.id; if (el._m) { el._m.id = m.id; el._m.body = m.body; }
+        el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
+      } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Pesan suara gagal terkirim: " + err.message); }
+    };
+    mr.start();
+  }
+  $("#vnrec").onclick = startVoice;
   async function saveId(id) {
     try {
       await api("/contacts", { method: "POST", body: JSON.stringify({ player_id: id }) });
@@ -972,8 +1065,8 @@ async function initDashboard() {
   $("#pavb").onclick = () => $("#pphoto").click();
   $("#pdel").onclick = () => saveProfile({ avatar: "" });
   $("#pst").onclick = async () => {
-    const r = await dialog({ title: "Ubah status", fields: [{ name: "s", label: "Status kamu", value: me.status || "", max: 80, placeholder: "Contoh: sibuk" }], ok: "Simpan" });
-    if (r) saveProfile({ status: r.s });
+    const r = await dialog({ title: "Ubah profil", fields: [{ name: "n", label: "Nama", value: me.full_name || "", max: 60, required: true }, { name: "s", label: "Status kamu", value: me.status || "", max: 80, placeholder: "Contoh: sibuk" }], ok: "Simpan" });
+    if (r) saveProfile({ full_name: r.n, status: r.s });
   };
 
   /* ----- WebRTC native: STUN Google, signaling lewat /api/send + /api/poll ----- */
@@ -1065,6 +1158,15 @@ async function initDashboard() {
   $("#vbtn").onclick = () => call(true);
   $("#abtn").onclick = () => call(false);
   async function signal(from, { type, data }) {
+    if (type === "del") {  // lawan bicara menghapus pesannya
+      const id = Number(data && data.id);
+      document.querySelectorAll("#msgs .bub").forEach((d) => {
+        if (d._m && d._m.id === id && d._m.sender === from && d._m.body !== DEL) markDeleted(d);
+        else if (d._m && d._m.reply && d._m.reply.id === id) { const q = d.querySelector(".quote"); if (q) q.replaceWith(quoteEl({ id, gone: true })); d._m.reply = { id, gone: true }; }
+      });
+      loadChats();
+      return;
+    }
     if (type === "ice") { if (peer && from === peer) { (pc && pc.remoteDescription) ? pc.addIceCandidate(data).catch(() => {}) : pend.push(data); } return; }
     if (type === "offer") {
       if (peer) return send(from, "sig", JSON.stringify({ type: "reject" }));
@@ -1301,13 +1403,19 @@ async function initDashboard() {
   async function showMembers(r) {
     try {
       const members = (await api("/rooms/" + r.id + "/members")).members;
-      const canKick = r.kind === "group" && r.owner === me.player_id;
-      const nm = (m) => m.full_name + (m.room_owner ? " (pemilik)" : "") + (m.player_id === me.player_id ? " (kamu)" : "");
+      const isOwn = r.owner === me.player_id, canKick = r.kind === "group" && (isOwn || r.admin);
+      const nm = (m) => m.full_name + (m.room_owner ? " (pemilik)" : m.room_admin ? " (admin)" : "") + (m.player_id === me.player_id ? " (kamu)" : "");
       if (!canKick) return dialog({ title: "Anggota (" + members.length + ")", desc: members.map(nm).join("\n"), ok: null });
-      const others = members.filter((m) => m.player_id !== me.player_id);
-      const pk = await dialog({ title: "Anggota (" + members.length + ")", desc: others.length ? "Pilih anggota untuk mengeluarkannya dari grup." : "Belum ada anggota lain di grup ini.", ok: null,
-        actions: others.map((m) => ({ key: m.player_id, label: "Keluarkan: " + m.full_name })) });
+      const others = members.filter((m) => m.player_id !== me.player_id && !m.room_owner && (isOwn || !m.room_admin));
+      const pk = await dialog({ title: "Anggota (" + members.length + ")", desc: others.length ? members.map(nm).join("\n") + "\n\nPilih anggota untuk dikeluarkan" + (isOwn ? " atau dijadikan admin." : ".") : "Belum ada anggota lain yang bisa dikelola.", ok: null,
+        actions: others.flatMap((m) => [{ key: m.player_id, label: "Keluarkan: " + m.full_name }].concat(isOwn ? [{ key: "adm:" + m.player_id, label: (m.room_admin ? "Cabut admin: " : "Jadikan admin: ") + m.full_name }] : [])) });
       if (!pk) return;
+      if (pk.action.startsWith("adm:")) {
+        const t = others.find((m) => m.player_id === pk.action.slice(4)); if (!t) return;
+        await api("/rooms/" + r.id + "/admin", { method: "POST", body: JSON.stringify({ player_id: t.player_id, value: !t.room_admin }) });
+        toast(t.full_name + (t.room_admin ? " bukan admin lagi" : " sekarang admin")); if (st.cur === "R-" + r.id) { $("#msgs").replaceChildren(); (await api("/history?peer=" + encodeURIComponent(st.cur))).messages.forEach(addMsg); }
+        return;
+      }
       const who = others.find((m) => m.player_id === pk.action); if (!who) return;
       if (!(await dialog({ title: "Keluarkan " + who.full_name + "?", desc: "Dia tidak bisa lagi membaca atau mengirim pesan di grup ini. Anggota lain melihat pemberitahuannya.", ok: "Keluarkan" }))) return;
       await api("/rooms/" + r.id + "/kick", { method: "POST", body: JSON.stringify({ player_id: who.player_id }) });
@@ -1316,10 +1424,10 @@ async function initDashboard() {
     } catch (e) { toast(e.message); }
   }
   async function roomMenu(r) {
-    const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", mineOwner = r.owner === me.player_id;
+    const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", mineOwner = r.owner === me.player_id, canEdit = mineOwner || (grp && r.admin);
     const acts = [{ key: "members", label: "Lihat anggota" }];
-    if (mineOwner) acts.push({ key: "edit", label: "Ganti nama dan deskripsi" }, { key: "photo", label: "Ganti foto " + jenis });
-    if (mineOwner && r.avatar) acts.push({ key: "rmphoto", label: "Hapus foto " + jenis });
+    if (canEdit) acts.push({ key: "edit", label: "Ganti nama dan deskripsi" }, { key: "photo", label: "Ganti foto " + jenis });
+    if (canEdit && r.avatar) acts.push({ key: "rmphoto", label: "Hapus foto " + jenis });
     if (grp || !mineOwner) acts.push({ key: "leave", label: grp ? "Keluar dari grup" : "Berhenti mengikuti", danger: true });
     const a = await dialog({ title: r.name, desc: jenis + " · " + r.count + " anggota" + (r.about ? "\n" + r.about : ""), ok: null, actions: acts });
     if (!a) return;
@@ -1468,7 +1576,11 @@ async function initDashboard() {
   $("#admbtn").onclick = () => show("admin");
 
   let last = (await api("/poll")).last, t1 = Date.now(), t2 = Date.now();
-  (async function tick() {
+  let pollT = null, polling = false;
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !polling) { clearTimeout(pollT); pollTick(); } });
+  async function pollTick() {
+    if (document.hidden) { pollT = setTimeout(pollTick, 20000); return; }
+    polling = true;  // tab disembunyikan: berhenti polling supaya database & server bisa istirahat (pesan yang terlewat diambil saat tab dibuka lagi)
     let wait = 50;
     const started = Date.now();
     try {
@@ -1487,8 +1599,10 @@ async function initDashboard() {
       if (now - t1 > 60000) { t1 = now; loadStories(); loadContacts(); loadChats(); }
       if (now - t2 > 15000) { t2 = now; loadPresence(); }
     } catch (e) { wait = 2500; }
-    setTimeout(tick, wait);
-  })();
+    polling = false;
+    pollT = setTimeout(pollTick, wait);
+  }
+  pollTick();
 }
 
 function splash() {

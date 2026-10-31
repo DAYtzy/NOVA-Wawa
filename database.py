@@ -138,7 +138,7 @@ class BadgeFlag(Base):  # centang warna lain (selain biru di UserFlag): merah & 
     player_id = Column(String(12), primary_key=True)
     red = Column(Boolean, nullable=True)     # True = diberi owner, selain itu dianggap tidak ada
     gray = Column(Boolean, nullable=True)    # True = diberi owner, selain itu dianggap tidak ada
-    yellow = Column(Boolean, nullable=True)  # None = aturan bawaan (otomatis dapat saat daftar), False = dicabut owner
+    yellow = Column(Boolean, nullable=True)  # override manual owner: True = paksa ada, False = paksa dicabut, None = otomatis (akun yang daftar dalam YELLOW_DAYS hari terakhir)
 
 
 class Media(Base):  # foto/video di chat & status. File di Cloudinary (provider "cld") atau, khusus foto kecil, di database ("db")
@@ -244,3 +244,9 @@ class MsgReply(Base):  # pesan ini membalas pesan lain (tabel baru, bukan ALTER;
     __tablename__ = "msg_reply"
     message_id = Column(Integer, primary_key=True)
     reply_to = Column(Integer, nullable=False, index=True)
+
+
+class RoomAdmin(Base):  # admin tambahan di grup (selain pemilik); tabel baru, bukan ALTER
+    __tablename__ = "room_admins"
+    room_id = Column(Integer, primary_key=True)
+    player_id = Column(String(12), primary_key=True)
