@@ -1,6 +1,5 @@
 const $ = (s) => document.querySelector(s);
 const getToken = () => localStorage.getItem("nova_token");
-(() => { const m = /^#join=([\w-]{6,16})$/.exec(location.hash); if (m) try { localStorage.setItem("nova_join", m[1]); } catch {} })();  // tautan undangan: simpan dulu, belum tentu sudah login
 
 async function api(path, opts = {}) {
   const headers = { "Content-Type": "application/json" };
@@ -346,23 +345,6 @@ async function initDashboard() {
   }
   $("#text").addEventListener("keydown", (e) => { if (e.key === "Escape" && st.replyTo) clearReply(); });
   let menuBusy = false;
-  /* teruskan teks atau stiker ke chat, grup, atau saluran lain (foto, video, dan suara belum bisa diteruskan) */
-  async function forwardMsg(m) {
-    const dest = [];
-    st.rooms.filter((r) => r.joined && (r.kind === "group" || r.owner === me.player_id)).forEach((r) => dest.push({ to: "R-" + r.id, label: (r.kind === "group" ? "Grup: " : "Saluran: ") + r.name }));
-    st.contacts.forEach((c) => dest.push({ to: c.player_id, label: c.full_name }));
-    const list = dest.slice(0, 40);
-    if (!list.length) return toast("Belum ada tujuan. Simpan ID teman dulu.");
-    const a = await dialog({ title: "Teruskan ke...", desc: lastText(m.body).slice(0, 80), ok: null, actions: list.map((d, i) => ({ key: String(i), label: d.label })) });
-    if (!a) return;
-    const d = list[Number(a.action)]; if (!d) return;
-    try {
-      const r = await send(d.to, "text", m.body);
-      st.last[d.to] = r.body; st.lastT[d.to] = r.t;
-      if (st.cur === d.to) addMsg(r);
-      render(); toast("Diteruskan ke " + d.label.replace(/^(Grup|Saluran): /, ""));
-    } catch (e) { toast("Gagal meneruskan: " + e.message); }
-  }
   /* ubah gelembung jadi "Pesan ini telah dihapus" (dipakai saat kita menghapus, saat lawan menghapus, dan saat riwayat dimuat) */
   function markDeleted(d) {
     d.classList.remove("sticker", "media"); d.classList.add("deleted");
@@ -378,14 +360,12 @@ async function initDashboard() {
       const plain = !stkId(m.body) && !medOf(m.body) && !vnOf(m.body), acts = [];
       if (!$("#form").hidden) acts.push({ key: "reply", label: "Balas" });
       if (plain) acts.push({ key: "copy", label: "Salin teks" });
-      if (m.id && !m.pending && !medOf(m.body) && !vnOf(m.body)) acts.push({ key: "fwd", label: "Teruskan" });
       if (m.sender === me.player_id && m.id && !m.pending) acts.push({ key: "del", label: "Hapus untuk semua" });
       if (!acts.length) return;
       const a = await dialog({ title: m.sender === me.player_id ? "Pesanmu" : nameOf(m.sender), desc: lastText(m.body).slice(0, 120), ok: null, actions: acts });
       if (!a) return;
       if (a.action === "reply") setReply(m);
       else if (a.action === "copy") navigator.clipboard.writeText(m.body).then(() => toast("Teks disalin"), () => toast("Tidak bisa menyalin teks"));
-      else if (a.action === "fwd") await forwardMsg(m);
       else if (a.action === "del") {
         const ok = await dialog({ title: "Hapus pesan?", desc: "Pesan ini akan hilang untuk semua orang di chat ini.", ok: "Hapus" });
         if (!ok) return;
@@ -1272,7 +1252,7 @@ async function initDashboard() {
   });
 
   /* ----- polling pesan + sinyal ----- */
-  await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence(), loadBlocks(), loadMutes()]);
+  await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence(), loadBlocks()]);
   show("home");
   /* ----- keamanan akun: ganti password, blokir ----- */
   async function changePassword() {
@@ -1407,87 +1387,11 @@ async function initDashboard() {
     const sub = await reg.pushManager.getSubscription(); if (!sub) return;
     const j = sub.toJSON(); api("/push/subscribe", { method: "POST", body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }) }).catch(() => {});
   });
-  const joinFromHash = () => { let c = null; try { c = localStorage.getItem("nova_join"); localStorage.removeItem("nova_join"); } catch {} if (c) { history.replaceState(null, "", location.pathname); joinInvite(c); return true; } return false; };
-  const openFromHash = () => { if (joinFromHash()) return; const m = /^#chat=(.+)$/.exec(location.hash); if (m) { history.replaceState(null, "", location.pathname); open(decodeURIComponent(m[1])); } };
+  const openFromHash = () => { const m = /^#chat=(.+)$/.exec(location.hash); if (m) { history.replaceState(null, "", location.pathname); open(decodeURIComponent(m[1])); } };
   if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", (e) => { const m = /#chat=(.+)$/.exec((e.data && e.data.url) || ""); if (e.data && e.data.type === "open" && m) open(decodeURIComponent(m[1])); });
   setTimeout(openFromHash, 700);
   st.blocked = new Set();
   async function loadBlocks() { try { st.blocked = new Set((await api("/blocks")).blocks.map((b) => b.player_id)); } catch {} }
-  /* ----- bisukan, cari pesan, media & tautan, tautan undangan ----- */
-  st.mutes = new Set();
-  async function loadMutes() { try { st.mutes = new Set((await api("/mutes")).mutes); } catch {} }
-  async function toggleMute(chat) {
-    const on = !st.mutes.has(chat);
-    try { await api("/mutes", { method: "POST", body: JSON.stringify({ chat, value: on }) }); on ? st.mutes.add(chat) : st.mutes.delete(chat); toast(on ? "Notifikasi dibisukan" : "Notifikasi diaktifkan"); } catch (e) { toast(e.message); }
-  }
-  const toolActs = (chat) => [{ key: "mute", label: st.mutes.has(chat) ? "Aktifkan notifikasi" : "Bisukan notifikasi" }, { key: "search", label: "Cari pesan" }, { key: "media", label: "Media dan tautan" }];
-  function chatSearch() {
-    document.querySelectorAll(".msearch").forEach((x) => x.remove());
-    const bar = mk("div", null, "msearch"), inp = mk("input"), cnt = mk("small"), x = mk("button", null, "hb");
-    inp.type = "search"; inp.placeholder = "Cari di chat ini..."; inp.setAttribute("aria-label", "Cari pesan");
-    x.type = "button"; x.setAttribute("aria-label", "Tutup pencarian"); x.append(ic("x"));
-    bar.append(inp, cnt, x); $("#msgs").before(bar); inp.focus();
-    const run = () => {
-      const q = inp.value.trim().toLowerCase(); let n = 0;
-      document.querySelectorAll("#msgs .bub").forEach((d) => {
-        const b = d._m && d._m.body, hit = !q || (b && !medOf(b) && !stkId(b) && !vnOf(b) && b !== DEL && b.toLowerCase().includes(q));
-        d.hidden = !hit; if (q && hit) n++;
-      });
-      cnt.textContent = q ? n + " ditemukan" : "";
-    };
-    inp.oninput = run;
-    x.onclick = () => { inp.value = ""; run(); bar.remove(); };
-  }
-  function mediaPanel() {
-    const items = [], links = [], wrap = mk("div", null, "mpanel");
-    document.querySelectorAll("#msgs .bub").forEach((d) => {
-      const m = d._m; if (!m || !m.body) return;
-      const md = medOf(m.body); if (md && !md.once) items.push(md);
-      (m.body.match(/https?:\/\/[^\s<>"']+/g) || []).forEach((u) => links.push(u.slice(0, 300)));
-    });
-    const grid = mk("div", null, "mgrid");
-    items.forEach((md) => needMeta(md.id, (meta) => {
-      if (!meta || !meta.url) return;
-      const b = mk("button"), im = mk("img"); b.type = "button"; im.src = meta.thumb || meta.url; im.alt = md.kind === "video" ? "Video" : "Foto"; im.loading = "lazy"; b.append(im);
-      b.onclick = () => viewMedia(meta); grid.append(b);
-    }));
-    wrap.append(mk("small", items.length || links.length ? "Dari 200 pesan terakhir" : "Belum ada media atau tautan di pesan yang termuat.", "hint"), grid);
-    if (links.length) { const ul = mk("div", null, "llist"); [...new Set(links)].forEach((u) => { const a = mk("a", u); a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer"; ul.append(a); }); wrap.append(mk("b", "Tautan"), ul); }
-    return wrap;
-  }
-  function mediaList() {
-    const prev = document.activeElement, back = mk("div", null, "mv"), bar = mk("div", null, "mv-bar"), x = mk("button", null, "hb"), body = mk("div", null, "mv-body mlist");
-    x.type = "button"; x.setAttribute("aria-label", "Tutup"); x.append(ic("x")); bar.append(x, mk("b", "Media dan tautan")); body.append(mediaPanel());
-    back.append(bar, body); document.body.append(back);
-    const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); };
-    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".mv ~ .mv")) { e.preventDefault(); close(); } };
-    document.addEventListener("keydown", onKey, true); x.onclick = close; x.focus();
-  }
-  async function toolAction(key, chat) {
-    if (key === "mute") await toggleMute(chat); else if (key === "search") chatSearch(); else if (key === "media") mediaList(); else return false;
-    return true;
-  }
-  async function inviteMenu(r, reset) {
-    try {
-      const { url } = await api("/rooms/" + r.id + "/invite", { method: "POST", body: JSON.stringify({ reset: !!reset }) });
-      const a = await dialog({ title: "Tautan undangan", desc: url + "\nSiapa pun yang punya tautan ini bisa bergabung.", ok: null, actions: [{ key: "copy", label: "Salin tautan" }, { key: "share", label: "Bagikan" }, { key: "qr", label: "Tampilkan kode QR" }, { key: "reset", label: "Buat tautan baru (yang lama mati)", danger: true }] });
-      if (!a) return;
-      if (a.action === "copy") navigator.clipboard.writeText(url).then(() => toast("Tautan disalin"), () => toast("Tidak bisa menyalin"));
-      else if (a.action === "share") { if (navigator.share) navigator.share({ title: r.name, url }).catch(() => {}); else navigator.clipboard.writeText(url).then(() => toast("Tautan disalin")); }
-      else if (a.action === "qr") qrOverlay("Kode QR undangan", url);
-      else if (a.action === "reset") inviteMenu(r, true);
-    } catch (e) { toast(e.message); }
-  }
-  async function joinInvite(code) {
-    try {
-      const info = await api("/invite/" + encodeURIComponent(code));
-      if (info.joined) { await loadRooms(); return open("R-" + info.id); }
-      const ok = await dialog({ title: (info.kind === "group" ? "Gabung grup " : "Ikuti saluran ") + info.name + "?", desc: info.count + " anggota" + (info.about ? "\n" + info.about : ""), ok: info.kind === "group" ? "Gabung" : "Ikuti" });
-      if (!ok) return;
-      const r = await api("/invite/" + encodeURIComponent(code) + "/join", { method: "POST" });
-      await loadRooms(); open("R-" + r.id);
-    } catch (e) { toast(e.message); }
-  }
   async function editRoom(r, patch, okMsg) {
     try {
       await api("/rooms/" + r.id + "/edit", { method: "POST", body: JSON.stringify(patch) });
@@ -1519,106 +1423,33 @@ async function initDashboard() {
       if (st.cur === "R-" + r.id) { $("#msgs").replaceChildren(); (await api("/history?peer=" + encodeURIComponent(st.cur))).messages.forEach(addMsg); }
     } catch (e) { toast(e.message); }
   }
-  /* ----- halaman info grup / saluran (tab Anggota, Media, Pengaturan) ----- */
-  async function addMembers(r) {
-    try {
-      const cur = new Set((await api("/rooms/" + r.id + "/members")).members.map((m) => m.player_id));
-      const f = await dialog({ title: "Tambah anggota", fields: [{ name: "extra", label: "ID lain (opsional, pisah koma)", placeholder: "48210377, 63915204", inputmode: "numeric" }],
-        contacts: st.contacts.filter((c) => !cur.has(c.player_id)), ok: "Tambah" });
-      if (!f) return false;
-      const members = [...new Set([...f.members, ...f.extra.split(",").map((x) => x.trim()).filter(Boolean)])];
-      if (!members.length) { toast("Pilih minimal satu orang."); return false; }
-      const res = await api("/rooms/" + r.id + "/add", { method: "POST", body: JSON.stringify({ members }) });
-      toast(res.added + " anggota ditambahkan"); await loadRooms();
-      if (st.cur === "R-" + r.id) { $("#msgs").replaceChildren(); (await api("/history?peer=" + encodeURIComponent(st.cur))).messages.forEach(addMsg); }
-      return true;
-    } catch (e) { toast(e.message); return false; }
+  async function roomMenu(r) {
+    const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", mineOwner = r.owner === me.player_id, canEdit = mineOwner || (grp && r.admin);
+    const acts = [{ key: "members", label: "Lihat anggota" }];
+    if (canEdit) acts.push({ key: "edit", label: "Ganti nama dan deskripsi" }, { key: "photo", label: "Ganti foto " + jenis });
+    if (canEdit && r.avatar) acts.push({ key: "rmphoto", label: "Hapus foto " + jenis });
+    if (grp || !mineOwner) acts.push({ key: "leave", label: grp ? "Keluar dari grup" : "Berhenti mengikuti", danger: true });
+    const a = await dialog({ title: r.name, desc: jenis + " · " + r.count + " anggota" + (r.about ? "\n" + r.about : ""), ok: null, actions: acts });
+    if (!a) return;
+    if (a.action === "members") return showMembers(r);
+    if (a.action === "edit") {
+      const f = await dialog({ title: "Ubah " + jenis, fields: [{ name: "name", label: "Nama " + jenis, value: r.name, max: 60, required: true }, { name: "about", label: "Deskripsi (opsional)", value: r.about || "", max: 200 }], ok: "Simpan" });
+      if (f) editRoom(r, { name: f.name, about: f.about });
+    } else if (a.action === "photo") {
+      const img = await pick(160, 0.75, 55000); editRoom(r, { avatar: img }, "Foto diperbarui");
+    } else if (a.action === "rmphoto") editRoom(r, { avatar: "" }, "Foto dihapus");
+    else if (a.action === "leave") {
+      const warn = grp && mineOwner ? "Kamu pemilik grup ini. Anggota paling lama akan jadi pemilik baru, dan kalau tidak ada anggota lain, grup dihapus." : "Kamu tidak akan menerima pesan dari " + jenis + " ini lagi.";
+      if (!(await dialog({ title: (grp ? "Keluar dari " : "Berhenti mengikuti ") + r.name + "?", desc: warn, ok: grp ? "Keluar" : "Berhenti" }))) return;
+      try { await api("/rooms/" + r.id + "/leave", { method: "POST" }); st.cur = null; show(st.tab); loadRooms(); toast(grp ? "Kamu keluar dari grup" : "Tidak lagi mengikuti"); } catch (e) { toast(e.message); }
+    }
   }
-  async function leaveRoom(r) {
-    const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", mineOwner = r.owner === me.player_id;
-    const warn = grp && mineOwner ? "Kamu pemilik grup ini. Anggota paling lama akan jadi pemilik baru, dan kalau tidak ada anggota lain, grup dihapus." : "Kamu tidak akan menerima pesan dari " + jenis + " ini lagi.";
-    if (!(await dialog({ title: (grp ? "Keluar dari " : "Berhenti mengikuti ") + r.name + "?", desc: warn, ok: grp ? "Keluar" : "Berhenti" }))) return false;
-    try { await api("/rooms/" + r.id + "/leave", { method: "POST" }); st.cur = null; show(st.tab); loadRooms(); toast(grp ? "Kamu keluar dari grup" : "Tidak lagi mengikuti"); return true; } catch (e) { toast(e.message); return false; }
-  }
-  function qrOverlay(title, url) {
-    const q = window.NovaQR(url), px = 8, quiet = 4, size = (q.n + quiet * 2) * px, c = document.createElement("canvas");
-    c.width = c.height = size; const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, size, size); g.fillStyle = "#000";
-    for (let y = 0; y < q.n; y++) for (let x = 0; x < q.n; x++) if (q.dark(y, x)) g.fillRect((x + quiet) * px, (y + quiet) * px, px, px);
-    const img = mk("img", null, "qrimg"); img.src = c.toDataURL("image/png"); img.alt = "Kode QR undangan";
-    const prev = document.activeElement, back = mk("div", null, "mv"), bar = mk("div", null, "mv-bar"), x = mk("button", null, "hb"), body = mk("div", null, "mv-body"), cp = mk("button", "Salin tautan", "btn");
-    x.type = cp.type = "button"; x.setAttribute("aria-label", "Tutup"); x.append(ic("x")); bar.append(x, mk("b", title));
-    cp.onclick = () => navigator.clipboard.writeText(url).then(() => toast("Tautan disalin"), () => toast("Tidak bisa menyalin"));
-    body.append(img, mk("small", "Pindai dengan kamera untuk bergabung", "hint"), cp); back.append(bar, body); document.body.append(back);
-    const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); };
-    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
-    document.addEventListener("keydown", onKey, true); x.onclick = close; x.focus();
-  }
-  async function roomInfo(r) {
-    const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", chat = "R-" + r.id, own = r.owner === me.player_id, canEdit = own || (grp && r.admin);
-    const back = mk("div", null, "mv rinfo"), bar = mk("div", null, "mv-bar"), x = mk("button", null, "hb"), body = mk("div", null, "rbody");
-    x.type = "button"; x.setAttribute("aria-label", "Tutup"); x.append(ic("back")); bar.append(x, mk("b", "Info " + jenis));
-    const prev = document.activeElement;
-    const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); };
-    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".rinfo ~ .mv")) { e.preventDefault(); close(); } };
-    document.addEventListener("keydown", onKey, true); x.onclick = close;
-    const hero = mk("div", null, "rhero"); hero.append(chAv(r.kind, r.avatar, r.name), mk("h2", r.name), mk("small", jenis[0].toUpperCase() + jenis.slice(1) + " · " + r.count + (grp ? " anggota" : " pengikut")));
-    if (r.about) hero.append(mk("p", r.about, "rabout"));
-    const qa = mk("div", null, "rqa"), qbtn = (icon, label, fn) => { const b = mk("button", null, "qa"); b.type = "button"; b.append(ic(icon), mk("span", label)); b.onclick = fn; qa.append(b); return b; };
-    qbtn("search", "Cari", () => { close(); chatSearch(); });
-    const mb = qbtn("mic", st.mutes.has(chat) ? "Aktifkan" : "Bisukan", async () => { await toggleMute(chat); mb.lastChild.textContent = st.mutes.has(chat) ? "Aktifkan" : "Bisukan"; });
-    if (canEdit) qbtn("userplus", grp ? "Undang" : "Bagikan", () => inviteMenu(r));
-    if (grp && canEdit) qbtn("plus", "Tambah", async () => { if (await addMembers(r)) { r = roomOf(chat) || r; hero.querySelector("small").textContent = "Grup · " + r.count + " anggota"; tabs.members(); } });
-    const tabBar = mk("div", null, "rtabs"), pane = mk("div", null, "rpane"), tabs = {}, defs = [["members", "Anggota"], ["media", "Media"], ["set", "Pengaturan"]];
-    const setTab = (k) => { [...tabBar.children].forEach((b) => { const on = b.dataset.k === k; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); }); pane.replaceChildren(); tabs[k](); };
-    defs.forEach(([k, label]) => { const b = mk("button", label); b.type = "button"; b.dataset.k = k; b.setAttribute("role", "tab"); b.onclick = () => setTab(k); tabBar.append(b); });
-    tabs.members = async () => {
-      pane.replaceChildren(mk("small", "Memuat...", "hint"));
-      try {
-        const members = (await api("/rooms/" + r.id + "/members")).members, list = mk("div", null, "mlist2");
-        members.forEach((m) => {
-          const row = mk("button", null, "mrow"); row.type = "button"; row.append(av(m.full_name, m.avatar));
-          const t = mk("span"); t.append(mk("b", m.full_name + (m.player_id === me.player_id ? " (kamu)" : ""))); row.append(t);
-          if (m.room_owner) row.append(mk("i", "Pemilik", "own")); else if (m.room_admin) row.append(mk("i", "Admin", "own"));
-          const can = grp && canEdit && !m.room_owner && m.player_id !== me.player_id && (own || !m.room_admin);
-          if (can) row.onclick = async () => {
-            const acts = [{ key: "kick", label: "Keluarkan", danger: true }]; if (own) acts.unshift({ key: "adm", label: m.room_admin ? "Cabut admin" : "Jadikan admin" });
-            const a = await dialog({ title: m.full_name, desc: "ID " + m.player_id, ok: null, actions: acts }); if (!a) return;
-            try {
-              if (a.action === "adm") await api("/rooms/" + r.id + "/admin", { method: "POST", body: JSON.stringify({ player_id: m.player_id, value: !m.room_admin }) });
-              else { if (!(await dialog({ title: "Keluarkan " + m.full_name + "?", desc: "Dia tidak bisa lagi membaca atau mengirim pesan di grup ini.", ok: "Keluarkan" }))) return; await api("/rooms/" + r.id + "/kick", { method: "POST", body: JSON.stringify({ player_id: m.player_id }) }); }
-              await loadRooms(); r = roomOf(chat) || r; hero.querySelector("small").textContent = "Grup · " + r.count + " anggota"; tabs.members();
-              if (st.cur === chat) { $("#msgs").replaceChildren(); (await api("/history?peer=" + encodeURIComponent(st.cur))).messages.forEach(addMsg); }
-            } catch (e) { toast(e.message); }
-          }; else row.disabled = true;
-          list.append(row);
-        });
-        pane.replaceChildren(list);
-      } catch (e) { pane.replaceChildren(mk("small", e.message, "hint")); }
-    };
-    tabs.media = () => pane.replaceChildren(mediaPanel());
-    tabs.set = () => {
-      const col = mk("div", null, "rset"), add = (label, fn, danger) => { const b = mk("button", label, danger ? "danger" : ""); b.type = "button"; b.onclick = fn; col.append(b); };
-      if (canEdit) {
-        add("Ganti nama dan deskripsi", async () => { const f = await dialog({ title: "Ubah " + jenis, fields: [{ name: "name", label: "Nama " + jenis, value: r.name, max: 60, required: true }, { name: "about", label: "Deskripsi (opsional)", value: r.about || "", max: 200 }], ok: "Simpan" }); if (f) { await editRoom(r, { name: f.name, about: f.about }); close(); roomInfo(roomOf(chat) || r); } });
-        add("Ganti foto " + jenis, async () => { const img = await pick(160, 0.75, 55000); await editRoom(r, { avatar: img }, "Foto diperbarui"); close(); roomInfo(roomOf(chat) || r); });
-        if (r.avatar) add("Hapus foto " + jenis, async () => { await editRoom(r, { avatar: "" }, "Foto dihapus"); close(); roomInfo(roomOf(chat) || r); });
-        add("Tautan undangan", () => inviteMenu(r));
-      }
-      add(st.mutes.has(chat) ? "Aktifkan notifikasi" : "Bisukan notifikasi", async () => { await toggleMute(chat); tabs.set(); mb.lastChild.textContent = st.mutes.has(chat) ? "Aktifkan" : "Bisukan"; });
-      if (grp || !own) add(grp ? "Keluar dari grup" : "Berhenti mengikuti", async () => { if (await leaveRoom(r)) close(); }, true);
-      pane.replaceChildren(col);
-    };
-    body.append(hero, qa, tabBar, pane); back.append(bar, body); document.body.append(back); x.focus();
-    setTab("members");
-  }
-  const roomMenu = roomInfo;
   $("#morebtn").onclick = async () => {
     const p = st.cur; if (p && isRoom(p)) { const r = roomOf(p); if (r) roomMenu(r); return; }
     if (!p || p === OFFICIAL) return;
     const was = st.blocked.has(p);
-    const r = await dialog({ title: nameOf(p), desc: "ID " + p, ok: null, actions: [...toolActs(p), { key: "blk", label: was ? "Buka blokir" : "Blokir pengguna", danger: !was }, { key: "rep", label: "Laporkan pengguna" }] });
+    const r = await dialog({ title: nameOf(p), desc: "ID " + p, ok: null, actions: [{ key: "blk", label: was ? "Buka blokir" : "Blokir pengguna", danger: !was }, { key: "rep", label: "Laporkan pengguna" }] });
     if (!r) return;
-    if (await toolAction(r.action, p)) return;
     if (r.action === "rep") return reportUser(p);
     if (!was && !(await dialog({ title: "Blokir " + nameOf(p) + "?", desc: "Pesan dan panggilan darinya tidak akan sampai ke kamu, dan dia tidak diberi tahu.", ok: "Blokir" }))) return;
     try { await api("/blocks/" + p, { method: "POST", body: JSON.stringify({ value: !was }) }); await loadBlocks(); toast(was ? "Blokir dibuka" : "Pengguna diblokir"); } catch (e) { toast(e.message); }
