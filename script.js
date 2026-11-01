@@ -204,15 +204,17 @@ async function initDashboard() {
   const loaders = { upd: () => { loadStories(); loadRooms(); }, calls: loadCalls, explore: loadRooms, profile: () => refreshPush(), admin: () => { $("#abanner").value = me.announce || ""; loadAdmin(); } };
   const TITLES = { home: "NOVA WAWA", upd: "Pembaruan", calls: "Panggilan", profile: "Profil", explore: "Cari Saluran", admin: "Panel Owner" };
   function show(id) {
+    const wide = matchMedia("(min-width:900px)").matches;  // komputer: daftar chat tetap terlihat di kiri saat chat dibuka di kanan
     st.screen = id; if (id !== "room" && id !== "explore" && id !== "admin") st.tab = id;
-    SCREENS.forEach((s) => ($("#" + s).hidden = s !== id));
+    const base = wide && id === "room" ? st.tab : id;
+    SCREENS.forEach((s) => ($("#" + s).hidden = s !== id && !(wide && id === "room" && s === st.tab)));
     if (TITLES[id]) {
       $("#htitle").textContent = TITLES[id]; $("#top").classList.toggle("c", id !== "home");
       $("#clock").hidden = id !== "home"; $("#hback").hidden = !["explore", "admin"].includes(id); $("#hnew").hidden = id !== "upd";
     }
-    $("#fab").hidden = !["home", "upd"].includes(id); $("#fabt").hidden = id !== "upd";
-    $(".nav").hidden = id === "room" || id === "explore";
-    document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.s === (id === "explore" ? "upd" : id === "admin" ? "profile" : id)));
+    $("#fab").hidden = !["home", "upd"].includes(base); $("#fabt").hidden = base !== "upd";
+    $(".nav").hidden = (id === "room" && !wide) || id === "explore";
+    document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.s === (base === "explore" ? "upd" : base === "admin" ? "profile" : base)));
     if (loaders[id]) loaders[id]();
     render();
   }
@@ -464,6 +466,9 @@ async function initDashboard() {
     (await api("/history?peer=" + encodeURIComponent(p))).messages.forEach(addMsg);
     render();
   }
+  document.addEventListener("keydown", (e) => {  // komputer: Esc menutup chat yang terbuka (kalau tidak ada kotak dialog)
+    if (e.key === "Escape" && st.screen === "room" && matchMedia("(min-width:900px)").matches && !document.querySelector(".dlg-back, .mv, .sv, .call:not([hidden])") && !e.defaultPrevented) $("#back").click();
+  });
   $("#back").onclick = () => { cancelVoice(); if (curAud) curAud.pause(); st.cur = null; show(st.tab); };
   $("#form").onsubmit = async (e) => {
     e.preventDefault();

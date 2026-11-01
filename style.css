@@ -495,3 +495,24 @@ a.btn{text-decoration:none;text-align:center}
 .rset button{padding:.85rem 1rem;text-align:left;background:var(--surf);border:1px solid var(--bd);border-radius:var(--rs);color:var(--ink);cursor:pointer}
 .rset button.danger{color:var(--red)}
 .qrimg{width:min(80vw,320px);height:auto;image-rendering:pixelated;border-radius:var(--rs)}
+
+/* ===== Mode komputer (layar lebar): daftar di kiri, chat di kanan ===== */
+.deskempty{display:none}
+@media (min-width:900px){
+  :root{--sbw:clamp(340px,32vw,440px)}
+  .top{position:fixed;top:0;left:0;width:var(--sbw);box-sizing:border-box}
+  main{position:fixed;top:56px;bottom:66px;left:0;width:var(--sbw);max-width:none;margin:0;padding:.8rem;box-sizing:border-box;overflow-y:auto;border-right:1px solid var(--bd)}
+  .nav{right:auto;width:var(--sbw);box-sizing:border-box;border-right:1px solid var(--bd)}
+  .fab{right:auto;left:calc(var(--sbw) - 58px - 1rem);bottom:5.2rem}
+  .fab.t{right:auto;left:calc(var(--sbw) - 48px - 1.4rem);bottom:9rem}
+  #room{left:var(--sbw);right:0;max-width:none;margin:0;border-width:0;z-index:2}
+  #room .rhead #back{display:none}
+  .msgs{padding:1.2rem 2rem}
+  .bub{max-width:min(80%,560px)}
+  .composer{padding:.7rem 1.2rem}
+  .deskempty{position:fixed;left:var(--sbw);right:0;top:0;bottom:0;display:grid;place-content:center;justify-items:center;gap:.6rem;text-align:center;color:var(--mut);background:var(--bg)}
+  .deskempty img{width:96px;height:96px;border-radius:22px;opacity:.9}
+  .deskempty h2{margin:.2rem 0 0;color:var(--ink);letter-spacing:.14em}
+  #room:not([hidden]) ~ .deskempty{display:none}
+  .row,.list>li{cursor:pointer}
+}
