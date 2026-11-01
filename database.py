@@ -250,3 +250,15 @@ class RoomAdmin(Base):  # admin tambahan di grup (selain pemilik); tabel baru, b
     __tablename__ = "room_admins"
     room_id = Column(Integer, primary_key=True)
     player_id = Column(String(12), primary_key=True)
+
+
+class ChatMute(Base):  # chat yang dibisukan (notifikasi push tidak dikirim); chat = ID teman atau "R-<id>"
+    __tablename__ = "chat_mutes"
+    player_id = Column(String(12), primary_key=True)
+    chat = Column(String(14), primary_key=True)
+
+
+class RoomInvite(Base):  # tautan undangan grup/saluran
+    __tablename__ = "room_invites"
+    room_id = Column(Integer, primary_key=True)
+    code = Column(String(16), unique=True, nullable=False, index=True)
