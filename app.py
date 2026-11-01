@@ -10,7 +10,7 @@ from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
 import mailer, push
 from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, RoomAdmin, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, RoomAdmin, ChatMute, RoomInvite, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -48,7 +48,7 @@ VERIFIED = {x.strip().upper() for x in os.getenv("VERIFIED_IDS", "").split(",") 
 YELLOW_DAYS = 7  # berapa hari centang kuning "pengguna baru" nempel sebelum hilang otomatis
 ANNOUNCE = os.getenv("ANNOUNCEMENT", "Selamat datang di NOVA WAWA. Simpan ID temanmu lalu mulai chat, telpon, atau video call.")
 PUBLIC_FILES = {"index.html", "login.html", "dashboard.html", "forgot.html", "reset.html", "verify.html", "terms.html", "privacy.html",
-                "about.html", "style.css", "script.js", "sw.js", "manifest.json", "icon-192.png", "icon-512.png", "logo.png", "login.mp4", "intro.mp4"}
+                "about.html", "style.css", "script.js", "qrcode.js", "sw.js", "manifest.json", "icon-192.png", "icon-512.png", "logo.png", "login.mp4", "intro.mp4"}
 
 
 def new_pid(db):
@@ -60,7 +60,7 @@ def new_pid(db):
 
 ID_COLS = [(User, "player_id"), (Contact, "owner"), (Contact, "contact_pid"), (Message, "sender"), (Message, "to_id"),
            (Profile, "player_id"), (ProfileExt, "player_id"), (Story, "owner"), (Room, "owner"),
-           (RoomMember, "player_id"), (RoomAdmin, "player_id"), (Call, "caller"), (Call, "callee"), (Media, "owner")]
+           (RoomMember, "player_id"), (RoomAdmin, "player_id"), (ChatMute, "player_id"), (Call, "caller"), (Call, "callee"), (Media, "owner")]
 
 
 def migrate_ids():
@@ -815,6 +815,8 @@ def purge_room(db, rid):
     db.query(RoomMember).filter(RoomMember.room_id == rid).delete(synchronize_session=False)
     db.query(RoomExt).filter(RoomExt.room_id == rid).delete(synchronize_session=False)
     db.query(RoomAdmin).filter(RoomAdmin.room_id == rid).delete(synchronize_session=False)
+    db.query(RoomInvite).filter(RoomInvite.room_id == rid).delete(synchronize_session=False)
+    db.query(ChatMute).filter(ChatMute.chat == "R-%d" % rid).delete(synchronize_session=False)
     db.query(Room).filter(Room.id == rid).delete(synchronize_session=False)
 
 
@@ -1365,7 +1367,8 @@ def notify(db, u, to, kind, body):
     blocked = {b.owner for b in db.query(Block).filter(Block.target == u.player_id, Block.owner.in_(targets))}
     cut = datetime.utcnow() - timedelta(seconds=20)
     active = {e.player_id for e in db.query(ProfileExt).filter(ProfileExt.player_id.in_(targets), ProfileExt.last_seen > cut)}
-    targets = [t for t in targets if t not in blocked and t not in active]
+    muted = {x.player_id for x in db.query(ChatMute).filter(ChatMute.chat == (to if to.startswith("R-") else u.player_id), ChatMute.player_id.in_(targets))}
+    targets = [t for t in targets if t not in blocked and t not in active and t not in muted]
     if not targets:
         return
     subs = [{"endpoint": x.endpoint, "p256dh": x.p256dh, "auth": x.auth} for x in db.query(PushSub).filter(PushSub.player_id.in_(targets)).limit(200)]
@@ -1738,6 +1741,113 @@ def room_kick(db, u, rid):
     room_notice(db, rid, "%s dikeluarkan dari grup." % (t.full_name if t else pid))
     db.commit()
     return jsonify(ok=True)
+
+
+@app.post("/api/rooms/<int:rid>/add")
+@authed
+def room_add(db, u, rid):
+    """Pemilik atau admin menambah anggota ke grup yang sudah ada (maks 256 anggota)."""
+    r, err = my_room(db, u, rid, need_admin=True)
+    if err:
+        return err
+    if r.kind != "group":
+        return jsonify(error="Hanya untuk grup."), 400
+    if not rl(db, "radd:" + u.player_id, 20, 3600):
+        return jsonify(error="Terlalu banyak. Coba lagi nanti."), 429
+    raw = (request.get_json(silent=True) or {}).get("members") or []
+    if not isinstance(raw, list) or len(raw) > 100:
+        return jsonify(error="Maksimal 100 orang sekali tambah."), 400
+    want = {str(x).strip().upper() for x in raw if isinstance(x, (str, int))} - {OFFICIAL}
+    have = {m.player_id for m in db.query(RoomMember).filter_by(room_id=rid)}
+    found = {x.player_id: x for x in db.query(User).filter(User.player_id.in_(list(want)))} if want else {}
+    nope = {b.owner for b in db.query(Block).filter(Block.target == u.player_id, Block.owner.in_(list(found)))} if found else set()
+    new = [p for p in found if p not in have and p not in nope]
+    if not new:
+        return jsonify(error="Tidak ada anggota baru yang bisa ditambahkan."), 400
+    if len(have) + len(new) > 256:
+        return jsonify(error="Anggota grup maksimal 256 orang."), 400
+    for p in new:
+        db.add(RoomMember(room_id=rid, player_id=p))
+    room_notice(db, rid, "%s menambahkan %s." % (u.full_name, ", ".join(found[p].full_name for p in new[:5]) + (" dan %d lainnya" % (len(new) - 5) if len(new) > 5 else "")))
+    db.commit()
+    return jsonify(ok=True, added=len(new))
+
+
+@app.get("/api/mutes")
+@authed
+def mutes_get(db, u):
+    return jsonify(mutes=[m.chat for m in db.query(ChatMute).filter_by(player_id=u.player_id)])
+
+
+@app.post("/api/mutes")
+@authed
+def mutes_set(db, u):
+    d = request.get_json(silent=True) or {}
+    chat = str(d.get("chat") or "").strip().upper()
+    if not re.fullmatch(r"R-\d{1,9}|\d{4,12}", chat):
+        return jsonify(error="Chat tidak valid."), 400
+    have = db.get(ChatMute, (u.player_id, chat))
+    if d.get("value") and not have:
+        if db.query(func.count(ChatMute.chat)).filter(ChatMute.player_id == u.player_id).scalar() >= 500:
+            return jsonify(error="Terlalu banyak chat yang dibisukan."), 400
+        db.add(ChatMute(player_id=u.player_id, chat=chat))
+    elif not d.get("value") and have:
+        db.delete(have)
+    db.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/rooms/<int:rid>/invite")
+@authed
+def room_invite(db, u, rid):
+    """Buat (atau reset) tautan undangan. Grup: pemilik/admin. Saluran: pemilik."""
+    r, err = my_room(db, u, rid, need_admin=True)
+    if err:
+        return err
+    if not rl(db, "rinv:" + u.player_id, 20, 3600):
+        return jsonify(error="Terlalu banyak. Coba lagi nanti."), 429
+    inv = db.get(RoomInvite, rid)
+    if not inv or (request.get_json(silent=True) or {}).get("reset"):
+        code = secrets.token_urlsafe(9)[:12]
+        if inv:
+            inv.code = code
+        else:
+            db.add(RoomInvite(room_id=rid, code=code))
+        db.commit()
+    else:
+        code = inv.code
+    return jsonify(code=code, url=public_url() + "/dashboard.html#join=" + code)
+
+
+@app.get("/api/invite/<code>")
+@authed
+def invite_info(db, u, code):
+    inv = db.query(RoomInvite).filter_by(code=code[:16]).first()
+    r = inv and db.get(Room, inv.room_id)
+    if not r:
+        return jsonify(error="Tautan tidak berlaku lagi."), 404
+    n = db.query(func.count(RoomMember.id)).filter(RoomMember.room_id == r.id).scalar()
+    joined = bool(db.query(RoomMember.id).filter_by(room_id=r.id, player_id=u.player_id).first())
+    return jsonify(id=r.id, kind=r.kind, name=r.name, about=r.about, count=n, joined=joined)
+
+
+@app.post("/api/invite/<code>/join")
+@authed
+def invite_join(db, u, code):
+    if not rl(db, "ijoin:" + u.player_id, 30, 3600):
+        return jsonify(error="Terlalu banyak. Coba lagi nanti."), 429
+    inv = db.query(RoomInvite).filter_by(code=code[:16]).first()
+    r = inv and db.get(Room, inv.room_id)
+    if not r:
+        return jsonify(error="Tautan tidak berlaku lagi."), 404
+    if not db.query(RoomMember.id).filter_by(room_id=r.id, player_id=u.player_id).first():
+        if db.query(func.count(RoomMember.id)).filter(RoomMember.room_id == r.id).scalar() >= 256 and r.kind == "group":
+            return jsonify(error="Grup sudah penuh (256 anggota)."), 400
+        db.add(RoomMember(room_id=r.id, player_id=u.player_id))
+        if r.kind == "group":
+            room_notice(db, r.id, "%s bergabung lewat tautan undangan." % u.full_name)
+        db.commit()
+    return jsonify(id=r.id)
 
 
 @app.post("/api/rooms/<int:rid>/admin")
