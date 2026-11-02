@@ -144,6 +144,8 @@ def is_yellow(u):
 
 def badge_color(u):
     """Centang mana yang ditampilkan kalau beberapa aktif sekaligus: cuma satu per orang, prioritas biru > merah > abu-abu > kuning."""
+    if is_owner(u):
+        return "purple"
     if is_verified(u):
         return "blue"
     if is_red(u):

@@ -50,6 +50,7 @@ input:focus-visible,button:focus-visible,.btn:focus-visible,.item:focus-visible{
 .ic.seal.red{color:var(--red)}
 .ic.seal.gray{color:var(--mut)}
 .ic.seal.yellow{color:#eab308}
+.ic.seal.purple{color:#a855f7}
 .btn .ic{width:1.15em;height:1.15em;margin-right:.45em;vertical-align:-.2em}
 /* header */
 .top{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:.6rem;min-height:56px;background:var(--surf);border-bottom:1px solid var(--bd);padding:.5rem 1rem}
