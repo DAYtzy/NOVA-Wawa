@@ -286,7 +286,7 @@ async function initDashboard() {
     $("#pname").textContent = me.full_name; $("#pstat").textContent = me.status || "Belum ada status";
     $("#pid").textContent = me.player_id; $("#pyear").textContent = "Lahir " + me.birth_year;
     $("#pcover").style.backgroundImage = safeImg(me.cover) ? 'url("' + me.cover + '")' : "";
-    $("#pver").toggleAttribute("hidden", !me.badge); $("#pver").className = "ic seal" + (me.badge ? " " + me.badge : ""); $("#pown").hidden = !(me.owner || me.mod || me.cc); $("#pown").textContent = me.owner ? "OWNER" : me.mod ? "MOD" : "CC"; $("#pown").classList.toggle("cc", !me.owner && !me.mod && !!me.cc); $("#admbtn").hidden = !me.is_staff; $("#admtitle").textContent = me.is_owner ? "Panel Owner" : "Panel Moderator"; $("#admsub").textContent = me.is_owner ? "Kelola pengguna, banner, laporan, dan pengumuman" : "Tangani laporan dan blokir pengguna"; $("#pvb").toggleAttribute("hidden", !me.badge); $("#pvb").style.color = { red: "#f4495f", gray: "#8d8da3", yellow: "#eab308", purple: "#a855f7" }[me.badge] || "#22d3ee"; $("#copysub").textContent = me.player_id;
+    $("#pver").toggleAttribute("hidden", !me.badge); $("#pver").setAttribute("class", "ic seal" + (me.badge ? " " + me.badge : "")); $("#pown").hidden = !(me.owner || me.mod || me.cc); $("#pown").textContent = me.owner ? "OWNER" : me.mod ? "MOD" : "CC"; $("#pown").classList.toggle("cc", !me.owner && !me.mod && !!me.cc); $("#admbtn").hidden = !me.is_staff; $("#admtitle").textContent = me.is_owner ? "Panel Owner" : "Panel Moderator"; $("#admsub").textContent = me.is_owner ? "Kelola pengguna, banner, laporan, dan pengumuman" : "Tangani laporan dan blokir pengguna"; $("#pvb").toggleAttribute("hidden", !me.badge); $("#pvb").style.color = { red: "#f4495f", gray: "#8d8da3", yellow: "#eab308", purple: "#a855f7" }[me.badge] || "#22d3ee"; $("#copysub").textContent = me.player_id;
     $("#swpub").setAttribute("aria-checked", String(me.public !== false)); $("#storysub").textContent = VIS[me.story_vis || "all"]; $("#seensub").textContent = VIS[me.seen_vis || "all"]; $("#verifybtn").hidden = !(me.mail && !me.email_verified);
   }
   async function loadContacts() { st.contacts = (await api("/contacts")).contacts; render(); }
@@ -1369,6 +1369,12 @@ async function initDashboard() {
     else if (localStorage.getItem(LK) && Date.now() - hiddenAt > 30000) { $("#lock").hidden = false; unlock(); }
   });
 
+  /* centang/peran yang baru diberi owner muncul tanpa perlu keluar-masuk: muat ulang profil saat aplikasi dibuka lagi */
+  let meT = 0;
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden || Date.now() - meT < 30000) return; meT = Date.now();
+    try { const n = (await api("/me")).user; if (["badge", "verified", "owner", "mod", "cc", "is_staff"].some((k) => n[k] !== me[k])) { Object.assign(me, n); render(); } } catch {}
+  });
   /* ----- polling pesan + sinyal ----- */
   await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence(), loadBlocks(), loadMutes(), loadChatPins()]);
   show("home");
