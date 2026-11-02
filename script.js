@@ -183,6 +183,7 @@ async function initDashboard() {
   const ic = (n, cls) => { const s = document.createElementNS(NS, "svg"), u = document.createElementNS(NS, "use"); s.setAttribute("class", "ic" + (cls ? " " + cls : "")); u.setAttribute("href", "#i-" + n); s.append(u); return s; };
   const tm = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const short = (t) => (new Date(t).toDateString() === new Date().toDateString() ? tm(t) : new Date(t).toLocaleDateString([], { day: "numeric", month: "short" }));
+  const RB = { blue: "RESMI", yellow: "PILIHAN" };
   const hasStory = (p) => st.stories.some((s) => s.owner === p);
   const send = (to, kind, body, reply) => api("/send", { method: "POST", body: JSON.stringify(reply ? { to, kind, body, reply } : { to, kind, body }) });
   const chAv = (k, img, nm) => { const g = safeImg(img); if (g) return av(nm || "?", g); const e = mk("div", null, "av ico " + k); e.append(ic(k === "group" ? "users" : "channel")); return e; };
@@ -243,7 +244,7 @@ async function initDashboard() {
       return b;
     }));
     const E = st.contacts.map((c) => ({ p: c.player_id, n: c.full_name, i: c.avatar, k: "dm", bdg: c.badge, tag: c.owner ? "OWNER" : c.mod ? "MOD" : c.cc ? "CC" : "" }));
-    st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind, i: r.avatar, bdg: r.bdg }));
+    st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind, i: r.avatar, bdg: r.bdg, tag: RB[r.bdg] || "" }));
     Object.keys(st.last).forEach((k) => { if (!isRoom(k) && !saved(k) && k !== me.player_id) E.push({ p: k, n: nameOf(k), i: imgOf(k), k: "dm", v: k === OFFICIAL, tag: k === OFFICIAL ? "RESMI" : "" }); });
     const F = E.filter((e) => (st.filter === "all" || e.k === st.filter) && (e.n + e.p).toLowerCase().includes(q))
       .sort((a, b) => (st.cpins.has(b.p) - st.cpins.has(a.p)) || (Date.parse(st.lastT[b.p]) || 0) - (Date.parse(st.lastT[a.p]) || 0));
@@ -269,7 +270,7 @@ async function initDashboard() {
     /* Saluran */
     const chs = st.rooms.filter((r) => r.kind === "channel");
     const chRow = (r) => row(null, r.name, r.count + " pengikut" + (r.about ? " · " + r.about : ""), () => (r.joined ? open("R-" + r.id) : joinCh(r.id)),
-      { vb: r.bdg, avEl: chAv("channel", r.avatar, r.name), badge: r.owner === me.player_id ? "ADMIN" : st.unread["R-" + r.id] || "", icon: r.joined ? null : ic("plus", "pbtn") });
+      { vb: r.bdg, tag: RB[r.bdg] || "", avEl: chAv("channel", r.avatar, r.name), badge: r.owner === me.player_id ? "ADMIN" : st.unread["R-" + r.id] || "", icon: r.joined ? null : ic("plus", "pbtn") });
     const mineCh = chs.filter((r) => r.joined), finds = chs.filter((r) => !r.joined);
     $("#mych").replaceChildren(...mineCh.map(chRow));
     $("#find-h").hidden = !finds.length;
@@ -513,7 +514,7 @@ async function initDashboard() {
     const r = roomOf(p);
     $("#rtitle").textContent = nameOf(p);
     const ct = contact(p); if (ct && ct.owner) $("#rtitle").append(mk("i", "OWNER", "own")); if (p === OFFICIAL) $("#rtitle").append(mk("i", "RESMI", "own"));
-    if (r && r.bdg) $("#rtitle").append(ic("seal", "seal " + r.bdg));
+    if (r && r.bdg) $("#rtitle").append(ic("seal", "seal " + r.bdg), mk("i", RB[r.bdg], "own"));
     $("#rav").replaceChildren(r ? chAv(r.kind, r.avatar, r.name) : av(nameOf(p), imgOf(p)));
     $("#rid").className = ""; $("#rid").textContent = r ? (r.kind === "group" ? "Grup" : "Saluran · " + r.count + " pengikut") : p;
     roomSub(); $("#tray").hidden = true;
@@ -1711,7 +1712,7 @@ async function initDashboard() {
     const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); };
     const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".rinfo ~ .mv")) { e.preventDefault(); close(); } };
     document.addEventListener("keydown", onKey, true); x.onclick = close;
-    const hero = mk("div", null, "rhero"); const h2 = mk("h2", r.name); if (r.bdg) h2.append(ic("seal", "seal " + r.bdg));
+    const hero = mk("div", null, "rhero"); const h2 = mk("h2", r.name); if (r.bdg) h2.append(ic("seal", "seal " + r.bdg), mk("i", RB[r.bdg], "own"));
     hero.append(chAv(r.kind, r.avatar, r.name), h2, mk("small", jenis[0].toUpperCase() + jenis.slice(1) + " · " + r.count + (grp ? " anggota" : " pengikut")));
     if (r.about) hero.append(mk("p", r.about, "rabout"));
     const qa = mk("div", null, "rqa"), qbtn = (icon, label, fn) => { const b = mk("button", null, "qa"); b.type = "button"; b.append(ic(icon), mk("span", label)); b.onclick = fn; qa.append(b); return b; };
@@ -1856,7 +1857,7 @@ async function initDashboard() {
       $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
       $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
         () => userActions(x), { vb: x.badge, tag: x.owner ? "OWNER" : x.mod ? "MOD" : x.cc ? "CC" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
-      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { vb: x.bdg, avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
+      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { vb: x.bdg, tag: RB[x.bdg] || "", avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
     } catch (e) { toast(e.message); }
   }
   async function loadHealth() {
