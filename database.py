@@ -262,3 +262,88 @@ class RoomInvite(Base):  # tautan undangan grup/saluran
     __tablename__ = "room_invites"
     room_id = Column(Integer, primary_key=True)
     code = Column(String(16), unique=True, nullable=False, index=True)
+
+
+class MsgReaction(Base):  # reaksi emoji di pesan: satu reaksi per orang per pesan
+    __tablename__ = "msg_reactions"
+    message_id = Column(Integer, primary_key=True)
+    player_id = Column(String(12), primary_key=True)
+    emoji = Column(String(16), nullable=False)
+
+
+class MsgEdit(Base):  # penanda pesan sudah diedit (tabel baru, bukan ALTER)
+    __tablename__ = "msg_edits"
+    message_id = Column(Integer, primary_key=True)
+    at = Column(DateTime)
+
+
+class MsgPin(Base):  # pesan yang disematkan di sebuah chat; chat = "R-<id>" atau "<idA>:<idB>" (urut)
+    __tablename__ = "msg_pins"
+    chat = Column(String(30), primary_key=True)
+    message_id = Column(Integer, nullable=False)
+    by = Column(String(12), default="")
+
+
+class ChatPin(Base):  # chat yang disematkan di atas daftar chat milik seseorang
+    __tablename__ = "chat_pins"
+    player_id = Column(String(12), primary_key=True)
+    chat = Column(String(14), primary_key=True)
+
+
+class RoomSetting(Base):  # pengaturan grup: mode lambat (detik) dan pesan sambutan
+    __tablename__ = "room_settings"
+    room_id = Column(Integer, primary_key=True)
+    slow = Column(Integer, default=0)
+    welcome = Column(String(300), default="")
+
+
+class RoomLog(Base):  # catatan tindakan admin di grup
+    __tablename__ = "room_logs"
+    id = Column(Integer, primary_key=True)
+    room_id = Column(Integer, nullable=False, index=True)
+    actor = Column(String(12), nullable=False)
+    action = Column(String(24), nullable=False)
+    detail = Column(String(200), default="")
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class Poll(Base):  # polling; pesannya berisi "[poll:<id>]"
+    __tablename__ = "polls"
+    id = Column(Integer, primary_key=True)
+    sender = Column(String(12), nullable=False)
+    to_id = Column(String(12), nullable=False)
+    question = Column(String(200), nullable=False)
+    options = Column(Text, nullable=False)  # JSON daftar teks pilihan
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class PollVote(Base):
+    __tablename__ = "poll_votes"
+    poll_id = Column(Integer, primary_key=True)
+    player_id = Column(String(12), primary_key=True)
+    option = Column(Integer, nullable=False)
+
+
+class LoginSession(Base):  # satu baris per login (perangkat); token membawa id-nya sehingga bisa dicabut satu per satu
+    __tablename__ = "login_sessions"
+    sid = Column(String(16), primary_key=True)
+    player_id = Column(String(12), nullable=False, index=True)
+    device = Column(String(80), default="")
+    uahash = Column(String(16), default="")
+    ip = Column(String(45), default="")
+    created_at = Column(DateTime, server_default=func.now())
+    last_seen = Column(DateTime, nullable=True)
+    revoked = Column(Boolean, default=False)
+
+
+class LogoutAll(Base):  # semua token yang diterbitkan sebelum waktu ini tidak berlaku lagi
+    __tablename__ = "logout_all"
+    player_id = Column(String(12), primary_key=True)
+    at = Column(DateTime)
+
+
+class TotpKey(Base):  # autentikasi dua langkah (TOTP)
+    __tablename__ = "totp_keys"
+    player_id = Column(String(12), primary_key=True)
+    secret = Column(String(40), nullable=False)
+    enabled = Column(Boolean, default=False)

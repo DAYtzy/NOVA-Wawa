@@ -516,3 +516,25 @@ a.btn{text-decoration:none;text-align:center}
   #room:not([hidden]) ~ .deskempty{display:none}
   .row,.list>li{cursor:pointer}
 }
+
+.mn{color:var(--acc2);font-weight:700}
+.bub .ed{color:var(--mut);font-style:italic;margin-right:.4rem;font-size:.7rem}
+.bub.out .ed{color:rgba(255,255,255,.75)}
+.rx{flex-basis:100%;display:flex;flex-wrap:wrap;gap:.3rem}
+.rxc{padding:.1rem .45rem;border:1px solid var(--bd);border-radius:999px;background:var(--surf2);color:var(--ink);font-size:.8rem;cursor:pointer}
+.rxc.me{border-color:var(--acc2);background:color-mix(in srgb,var(--acc2) 18%,transparent)}
+.pinbar{display:flex;align-items:center;gap:.4rem;padding:.3rem .6rem;border-bottom:1px solid var(--bd);background:var(--surf)}
+.pinbar .pint{flex:1;min-width:0;display:flex;align-items:center;gap:.5rem;background:none;border:0;color:var(--ink);text-align:left;cursor:pointer;padding:.3rem}
+.pinbar .pint span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.85rem}
+.pinbar .hb{width:34px;height:34px}
+
+.pollb{display:grid;gap:.4rem;min-width:230px;width:100%}
+.pq{font-size:.95rem;overflow-wrap:anywhere}
+.po{position:relative;display:flex;justify-content:space-between;gap:.6rem;align-items:center;padding:.5rem .7rem;border:1px solid var(--bd);border-radius:var(--rs);background:rgba(128,128,128,.15);color:inherit;text-align:left;cursor:pointer;overflow:hidden}
+.po i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--acc2) 30%,transparent);z-index:0;transition:width .3s}
+.po span,.po small{position:relative;z-index:1}
+.po.me{border-color:var(--acc2)}
+.pot{overflow-wrap:anywhere}
+.pon{white-space:nowrap;opacity:.8}
+.pot2{opacity:.7}
+.onl{display:block;color:var(--grn);font-weight:700;font-size:.72rem}

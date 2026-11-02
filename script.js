@@ -16,7 +16,7 @@ async function api(path, opts = {}) {
       localStorage.removeItem("nova_token"); try { sessionStorage.setItem("nova_notice", data.error); } catch {}
       if (!/login/.test(location.pathname)) location.href = "login.html";
     }
-    throw new Error(data.error || "Terjadi kesalahan");
+    const err = new Error(data.error || "Terjadi kesalahan"); err.data = data; throw err;
   }
   return data;
 }
@@ -67,6 +67,11 @@ function initLogin() {
         location.href = "dashboard.html";
       } catch (err) {
         msg.textContent = err.message;
+        if (err.data && err.data.need_2fa && !form.querySelector('[name="code"]')) {  // akun memakai 2FA: minta kode 6 digit
+          const lab = document.createElement("label"), inp = document.createElement("input");
+          lab.textContent = "Kode 2FA"; inp.name = "code"; inp.inputMode = "numeric"; inp.maxLength = 8; inp.autocomplete = "one-time-code"; inp.required = true; lab.append(inp);
+          form.querySelector("button").before(lab); inp.focus();
+        } else if (form.querySelector('[name="code"]')) form.querySelector('[name="code"]').value = "";
         btn.disabled = false;
       }
     });
@@ -94,9 +99,11 @@ async function initDashboard() {
   const MED = /^\[med:(i|v)(o?):([0-9a-f]{24})\]$/;
   const medOf = (b) => { const m = MED.exec(b || ""); return m && { kind: m[1] === "v" ? "video" : "image", once: !!m[2], id: m[3] }; };
   const DEL = "[del]";  /* penanda isi pesan yang sudah dihapus pengirimnya */
+  const POLL = /^\[poll:(\d{1,9})\]$/;
+  const pollOf = (b) => { const m = POLL.exec(b || ""); return m && { id: Number(m[1]) }; };
   const VN = /^\[vn:([0-9a-f]{24})\]$/;
   const vnOf = (b) => { const m = VN.exec(b || ""); return m && { id: m[1] }; };
-  const lastText = (b) => { if (b === DEL) return "Pesan dihapus"; if (VN.test(b || "")) return "Pesan suara"; const k = medOf(b); return k ? (k.kind === "video" ? "Video" : "Foto") + (k.once ? " 1x lihat" : "") : stkId(b) ? "Stiker" : b; };
+  const lastText = (b) => { if (b === DEL) return "Pesan dihapus"; if (VN.test(b || "")) return "Pesan suara"; if (POLL.test(b || "")) return "Polling"; const k = medOf(b); return k ? (k.kind === "video" ? "Video" : "Foto") + (k.once ? " 1x lihat" : "") : stkId(b) ? "Stiker" : b; };
   const fmtDur = (n) => Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
   const sha24 = async (t) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].slice(0, 12).map((x) => x.toString(16).padStart(2, "0")).join("");
   /* Kotak dialog bergaya NOVA, pengganti prompt() bawaan browser. Hasil: objek isian, atau null kalau dibatalkan. */
@@ -234,10 +241,10 @@ async function initDashboard() {
     st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind, i: r.avatar }));
     Object.keys(st.last).forEach((k) => { if (!isRoom(k) && !saved(k) && k !== me.player_id) E.push({ p: k, n: nameOf(k), i: imgOf(k), k: "dm", v: k === OFFICIAL, tag: k === OFFICIAL ? "RESMI" : "" }); });
     const F = E.filter((e) => (st.filter === "all" || e.k === st.filter) && (e.n + e.p).toLowerCase().includes(q))
-      .sort((a, b) => (Date.parse(st.lastT[b.p]) || 0) - (Date.parse(st.lastT[a.p]) || 0));
+      .sort((a, b) => (st.cpins.has(b.p) - st.cpins.has(a.p)) || (Date.parse(st.lastT[b.p]) || 0) - (Date.parse(st.lastT[a.p]) || 0));
     $("#empty-list").hidden = F.length > 0;
     $("#empty-list").textContent = E.length ? "Tidak ada chat yang cocok." : "Belum ada chat. Tap + lalu masukkan ID temanmu untuk menyimpannya.";
-    $("#list").replaceChildren(...F.map((e) => row(e.i, e.n, lastText(st.last[e.p]) || (e.k === "dm" ? e.p : e.k === "group" ? "Grup" : "Saluran"), () => open(e.p),
+    $("#list").replaceChildren(...F.map((e) => row(e.i, e.n, (st.cpins.has(e.p) ? "📌 " : "") + lastText(st.last[e.p]) || (e.k === "dm" ? e.p : e.k === "group" ? "Grup" : "Saluran"), () => open(e.p),
       { time: st.lastT[e.p] ? short(st.lastT[e.p]) : "", badge: st.unread[e.p] || "", vb: e.bdg, tag: e.tag, avEl: e.k === "dm" ? null : chAv(e.k, e.i, e.n), online: e.k === "dm" && !!(st.seen[e.p] && st.seen[e.p].online) })));
 
     /* Pembaruan: kartu status */
@@ -319,10 +326,10 @@ async function initDashboard() {
     if (st.cur === OFFICIAL) { $("#rid").className = ""; $("#rid").textContent = "Akun resmi · hanya pengumuman"; return; }
     const s = st.seen[st.cur], el = $("#rid");
     el.className = s && s.online ? "on" : "";
-    el.textContent = s ? (s.online ? "online" : "terakhir dilihat " + fmt(s.seen)) : st.cur;
+    el.textContent = Date.now() - (st.typing[st.cur] || 0) < 4000 ? "mengetik..." : s ? (s.online ? "online" : "terakhir dilihat " + fmt(s.seen)) : st.cur;
   }
   /* ----- balas pesan: kutipan di gelembung, bar balasan, menu tekan-lama, geser ke kanan ----- */
-  st.replyTo = null;
+  st.replyTo = null; st.typing = {}; st.pin = null; st.cpins = new Set();
   const whoName = (p) => (p === me.player_id ? "Kamu" : nameOf(p));
   function quoteEl(rp) {
     const q = mk("div", null, "quote");
@@ -365,22 +372,56 @@ async function initDashboard() {
       render(); toast("Diteruskan ke " + d.label.replace(/^(Grup|Saluran): /, ""));
     } catch (e) { toast("Gagal meneruskan: " + e.message); }
   }
+  /* teks pesan dengan @mention disorot (aman: hanya node teks) */
+  function rich(body) {
+    const sp = mk("span"); let i = 0; const re = /(^|\s)(@[\w.\-]{2,30})/g; let m;
+    while ((m = re.exec(body))) { const at = m.index + m[1].length; if (at > i) sp.append(document.createTextNode(body.slice(i, at))); sp.append(mk("b", m[2], "mn")); i = at + m[2].length; }
+    sp.append(document.createTextNode(body.slice(i))); return sp;
+  }
+  const REACTS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+  function renderReacts(d) {
+    const old = d.querySelector(":scope > .rx"); if (old) old.remove();
+    const rx = d._m && d._m.reactions; if (!rx || d._m.body === DEL) return;
+    const keys = Object.keys(rx).filter((k) => rx[k].length); if (!keys.length) return;
+    const box = mk("div", null, "rx");
+    keys.forEach((k) => { const b = mk("button", k + (rx[k].length > 1 ? " " + rx[k].length : ""), "rxc" + (rx[k].includes(me.player_id) ? " me" : "")); b.type = "button"; b.setAttribute("aria-label", "Reaksi " + k); b.onclick = (e) => { e.stopPropagation(); reactTo(d, k); }; box.append(b); });
+    d.append(box);
+  }
+  function setReaction(d, pid, emoji) {
+    const m = d._m; if (!m) return; m.reactions = m.reactions || {};
+    Object.keys(m.reactions).forEach((k) => { m.reactions[k] = m.reactions[k].filter((x) => x !== pid); });
+    if (emoji) (m.reactions[emoji] = m.reactions[emoji] || []).push(pid);
+    renderReacts(d);
+  }
+  async function reactTo(d, emoji) {
+    const m = d._m; if (!m || !m.id) return;
+    try { const r = await api("/messages/" + m.id + "/react", { method: "POST", body: JSON.stringify({ emoji }) }); setReaction(d, me.player_id, r.emoji); } catch (e) { toast(e.message); }
+  }
+  function markEdited(d, body) {
+    const sp = d.querySelector(":scope > div > span:not(.who)"); if (sp && d._m && !stkId(d._m.body) && !medOf(d._m.body)) sp.replaceWith(rich(body));
+    if (d._m) { d._m.body = body; d._m.edited = true; }
+    const mt = d.querySelector(".mt"); if (mt && !mt.querySelector(".ed")) mt.prepend(mk("small", "diedit", "ed"));
+  }
   /* ubah gelembung jadi "Pesan ini telah dihapus" (dipakai saat kita menghapus, saat lawan menghapus, dan saat riwayat dimuat) */
   function markDeleted(d) {
     d.classList.remove("sticker", "media"); d.classList.add("deleted");
     const box = d.firstElementChild;
     [...box.children].forEach((c) => { if (!c.classList.contains("who")) c.remove(); });
     box.append(mk("span", "Pesan ini telah dihapus", "delt"));
-    if (d._m) { d._m.body = DEL; d._m.reply = undefined; }
+    const rxe = d.querySelector(":scope > .rx"); if (rxe) rxe.remove();
+    if (d._m) { d._m.body = DEL; d._m.reply = undefined; d._m.reactions = undefined; }
   }
   async function bubbleMenu(d) {
     const m = d._m; if (!m || menuBusy || m.body === DEL) return;
     menuBusy = true;
     try {
-      const plain = !stkId(m.body) && !medOf(m.body) && !vnOf(m.body), acts = [];
+      const plain = !stkId(m.body) && !medOf(m.body) && !vnOf(m.body) && !pollOf(m.body), acts = [];
       if (!$("#form").hidden) acts.push({ key: "reply", label: "Balas" });
       if (plain) acts.push({ key: "copy", label: "Salin teks" });
-      if (m.id && !m.pending && !medOf(m.body) && !vnOf(m.body)) acts.push({ key: "fwd", label: "Teruskan" });
+      if (m.id && !m.pending) acts.push({ key: "react", label: "Beri reaksi" });
+      if (m.id && !m.pending && !medOf(m.body) && !vnOf(m.body) && !pollOf(m.body)) acts.push({ key: "fwd", label: "Teruskan" });
+      if (m.id && !m.pending && st.cur !== OFFICIAL) acts.push({ key: "pin", label: st.pin && st.pin.id === m.id ? "Lepas sematan pesan" : "Sematkan pesan" });
+      if (m.sender === me.player_id && m.id && !m.pending && plain && Date.now() - Date.parse(m.t) < 15 * 60000) acts.push({ key: "edit", label: "Edit pesan" });
       if (m.sender === me.player_id && m.id && !m.pending) acts.push({ key: "del", label: "Hapus untuk semua" });
       if (!acts.length) return;
       const a = await dialog({ title: m.sender === me.player_id ? "Pesanmu" : nameOf(m.sender), desc: lastText(m.body).slice(0, 120), ok: null, actions: acts });
@@ -388,6 +429,14 @@ async function initDashboard() {
       if (a.action === "reply") setReply(m);
       else if (a.action === "copy") navigator.clipboard.writeText(m.body).then(() => toast("Teks disalin"), () => toast("Tidak bisa menyalin teks"));
       else if (a.action === "fwd") await forwardMsg(m);
+      else if (a.action === "react") {
+        const e = await dialog({ title: "Beri reaksi", ok: null, actions: REACTS.map((x) => ({ key: x, label: x })) });
+        if (e) reactTo(d, e.action);
+      } else if (a.action === "pin") pinMsg(m);
+      else if (a.action === "edit") {
+        const f = await dialog({ title: "Edit pesan", fields: [{ name: "t", label: "Isi pesan", value: m.body, multiline: true, max: 4000, required: true }], ok: "Simpan" });
+        if (f && f.t.trim() && f.t.trim() !== m.body) { try { await api("/messages/" + m.id + "/edit", { method: "POST", body: JSON.stringify({ body: f.t.trim() }) }); markEdited(d, f.t.trim()); if (st.last[m.to] === m.body) st.last[m.to] = f.t.trim(); render(); } catch (e) { toast(e.message); } }
+      }
       else if (a.action === "del") {
         const ok = await dialog({ title: "Hapus pesan?", desc: "Pesan ini akan hilang untuk semua orang di chat ini.", ok: "Hapus" });
         if (!ok) return;
@@ -443,12 +492,14 @@ async function initDashboard() {
     if (sid) { const im = mk("img", null, "smsg"); im.src = m.local || "/api/stickers/" + sid; im.alt = "Stiker"; box.append(im); }
     else if (md) box.append(...mediaBox(m, md));
     else if (vn) box.append(voiceEl(m, vn));
-    else box.append(mk("span", m.body));
+    else if (pollOf(m.body)) box.append(pollEl(pollOf(m.body).id));
+    else box.append(rich(m.body));
+    if (m.edited) mt.append(mk("small", "diedit", "ed"));
     mt.append(mk("time", tm(m.t)));
     if (mine) { d.dataset.to = m.to; d.dataset.t = m.t; mt.append(tick(m)); }
     d.append(box, mt);
     d._m = m; if (m.id) d.dataset.id = m.id; bubbleGestures(d);
-    if (m.body === DEL) markDeleted(d);
+    if (m.body === DEL) markDeleted(d); else renderReacts(d);
     $("#msgs").append(d); $("#msgs").scrollTop = 1e9;
     return d;
   }
@@ -463,8 +514,9 @@ async function initDashboard() {
     $("#savebtn").hidden = !!r || saved(p) || p === OFFICIAL; $("#morebtn").hidden = p === OFFICIAL; $("#vbtn").hidden = $("#abtn").hidden = !!r || p === OFFICIAL;
     $("#form").hidden = (!!r && r.kind === "channel" && r.owner !== me.player_id) || p === OFFICIAL;
     $("#msgs").replaceChildren(); show("room");
+    document.querySelectorAll(".pinbar,.msearch").forEach((x) => x.remove()); st.pin = null;
     (await api("/history?peer=" + encodeURIComponent(p))).messages.forEach(addMsg);
-    render();
+    render(); loadPin();
   }
   document.addEventListener("keydown", (e) => {  // komputer: Esc menutup chat yang terbuka (kalau tidak ada kotak dialog)
     if (e.key === "Escape" && st.screen === "room" && matchMedia("(min-width:900px)").matches && !document.querySelector(".dlg-back, .mv, .sv, .call:not([hidden])") && !e.defaultPrevented) $("#back").click();
@@ -483,7 +535,9 @@ async function initDashboard() {
       el.querySelector("time").textContent = tm(m.t); el.querySelector(".tk").replaceWith(tick(m)); render();
     } catch (err) { el.querySelector(".tk").replaceWith(ic("x", "tk fail")); toast("Pesan gagal terkirim: " + err.message); }
   };
-  const upd = () => { const has = $("#text").value.trim().length > 0; $("#sendb").hidden = !has; $("#mic").hidden = has; $("#vnrec").hidden = has; };
+  let typedAt = 0;
+  const upd = () => { const has = $("#text").value.trim().length > 0;
+    if (has && st.cur && !isRoom(st.cur) && st.cur !== OFFICIAL && Date.now() - typedAt > 3500) { typedAt = Date.now(); send(st.cur, "sig", JSON.stringify({ type: "typing", data: {} })).catch(() => {}); } $("#sendb").hidden = !has; $("#mic").hidden = has; $("#vnrec").hidden = has; };
   $("#text").oninput = upd;
   const EMO = "😀😃😄😁😆😅😂🤣🙂😉😊😇🥰😍😘😋😎🤩🥳😏😒😞😔😢😭😤😠🤯😱😳🤔🙄😴🤒🤢🙏👍👎👏🙌💪👀🔥✨🎉💯❤️💔💙💚💛🧡💜🖤".match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu) || [];
   let trayTab = "emoji";
@@ -552,6 +606,32 @@ async function initDashboard() {
     rec.start();
   };
   /* ----- pesan suara: pemutar di gelembung + perekam ----- */
+  const pollDraw = {};
+  function pollEl(id) {
+    const wrap = mk("div", null, "pollb");
+    const draw = (p) => {
+      wrap.replaceChildren(mk("b", p.q, "pq"));
+      p.options.forEach((o, i) => {
+        const b = mk("button", null, "po" + (p.mine === i ? " me" : "")), pct = p.total ? Math.round((o.n / p.total) * 100) : 0, bar = mk("i"); bar.style.width = pct + "%";
+        b.type = "button"; b.append(bar, mk("span", o.t, "pot"), mk("small", o.n + " (" + pct + "%)", "pon"));
+        b.onclick = async () => { try { const r = await api("/polls/" + id + "/vote", { method: "POST", body: JSON.stringify({ option: i }) }); pollDraw[id].forEach((f) => f(r.poll)); } catch (e) { toast(e.message); } };
+        wrap.append(b);
+      });
+      wrap.append(mk("small", p.total + " suara", "pot2"));
+    };
+    (pollDraw[id] = pollDraw[id] || []).push(draw);
+    wrap.append(mk("small", "Memuat polling...", "hint"));
+    api("/polls/" + id).then((r) => draw(r.poll)).catch(() => wrap.replaceChildren(mk("div", "Polling tidak tersedia", "mph")));
+    return wrap;
+  }
+  async function createPoll(chat) {
+    const f = await dialog({ title: "Buat polling", fields: [{ name: "q", label: "Pertanyaan", max: 200, required: true }, { name: "o1", label: "Pilihan 1", max: 80, required: true }, { name: "o2", label: "Pilihan 2", max: 80, required: true }, { name: "o3", label: "Pilihan 3 (opsional)", max: 80 }, { name: "o4", label: "Pilihan 4 (opsional)", max: 80 }, { name: "o5", label: "Pilihan 5 (opsional)", max: 80 }], ok: "Kirim" });
+    if (!f) return;
+    try {
+      const m = await api("/polls", { method: "POST", body: JSON.stringify({ to: chat, question: f.q, options: [f.o1, f.o2, f.o3, f.o4, f.o5].filter(Boolean) }) });
+      st.last[chat] = m.body; st.lastT[chat] = m.t; if (st.cur === chat) addMsg(m); render();
+    } catch (e) { toast(e.message); }
+  }
   let curAud = null;
   function voiceEl(m, vn) {
     const wrap = mk("div", null, "vnb"), btn = mk("button", null, "vn-play"), bar = mk("div", null, "vn-bar"), fill = mk("i"), tt = mk("small", "0:00", "vn-t");
@@ -1183,6 +1263,12 @@ async function initDashboard() {
   $("#vbtn").onclick = () => call(true);
   $("#abtn").onclick = () => call(false);
   async function signal(from, { type, data }) {
+    const bub = (id) => [...document.querySelectorAll("#msgs .bub")].find((d) => d._m && d._m.id === Number(id));
+    if (type === "react") { const d = bub(data && data.id); if (d) setReaction(d, from, REACTS.includes(data.emoji) ? data.emoji : ""); return; }
+    if (type === "edit") { const d = bub(data && data.id); if (d && d._m.sender === from && typeof data.body === "string") markEdited(d, data.body.slice(0, 4000)); loadChats(); return; }
+    if (type === "pollv") { (pollDraw[data && data.id] || []).length && api("/polls/" + data.id).then((r) => pollDraw[data.id].forEach((f) => f(r.poll))).catch(() => {}); return; }
+    if (type === "pin") { if (st.cur && (st.cur === from || isRoom(st.cur))) loadPin(); return; }
+    if (type === "typing") { st.typing[from] = Date.now(); if (st.cur === from) { roomSub(); setTimeout(roomSub, 4200); } return; }
     if (type === "del") {  // lawan bicara menghapus pesannya
       const id = Number(data && data.id);
       document.querySelectorAll("#msgs .bub").forEach((d) => {
@@ -1277,7 +1363,7 @@ async function initDashboard() {
   });
 
   /* ----- polling pesan + sinyal ----- */
-  await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence(), loadBlocks(), loadMutes()]);
+  await Promise.all([loadContacts(), loadRooms(), loadStories(), loadChats(), loadPresence(), loadBlocks(), loadMutes(), loadChatPins()]);
   show("home");
   /* ----- keamanan akun: ganti password, blokir ----- */
   async function changePassword() {
@@ -1293,6 +1379,35 @@ async function initDashboard() {
     } catch (e) { toast(e.message); }
   }
   $("#pwbtn").onclick = changePassword;
+  async function security() {
+    let d;
+    try { d = await api("/sessions"); } catch (e) { toast(e.message); return; }
+    const when = (s) => { try { return new Date(s).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
+    const live = d.sessions.filter((s) => !s.revoked);
+    const actions = [{ key: "tfa", label: d.tfa ? "Matikan verifikasi 2 langkah" : "Aktifkan verifikasi 2 langkah", danger: !d.tfa }];
+    live.forEach((s) => { if (!s.current) actions.push({ key: "rv:" + s.sid, label: "Keluarkan: " + s.device + " · " + s.ip + " · " + when(s.last) }); });
+    if (live.some((s) => !s.current)) actions.push({ key: "all", label: "Keluar dari semua perangkat lain", danger: true });
+    const desc = "Verifikasi 2 langkah: " + (d.tfa ? "aktif" : "mati") + ". Perangkat ini: " + ((live.find((s) => s.current) || {}).device || "saat ini") + ". Perangkat masuk: " + live.length + ".";
+    const r = await dialog({ title: "Keamanan akun", desc, actions, ok: "Tutup", cancel: " " });
+    if (!r || !r.action) return;
+    try {
+      if (r.action.startsWith("rv:")) { await api("/sessions/" + encodeURIComponent(r.action.slice(3)) + "/revoke", { method: "POST" }); toast("Perangkat dikeluarkan"); return security(); }
+      if (r.action === "all") { const x = await api("/sessions/revoke-all", { method: "POST" }); if (x.token) localStorage.setItem("nova_token", x.token); toast("Perangkat lain sudah keluar"); return security(); }
+      if (r.action === "tfa" && !d.tfa) {
+        const s = await api("/2fa/setup", { method: "POST" });
+        await qrOverlay("Verifikasi 2 langkah", s.uri, { hint: "Pindai dengan Google Authenticator atau Authy, lalu tutup layar ini dan masukkan kodenya.", copy: s.secret, copyLabel: "Salin kunci", copyDone: "Kunci disalin" });
+        const c = await dialog({ title: "Masukkan kode", desc: "Masukkan 6 angka dari aplikasi autentikator. Simpan kuncinya baik-baik, tidak ada kode cadangan.", fields: [{ name: "code", label: "Kode 6 angka", inputmode: "numeric", auto: "one-time-code", required: true, max: 6 }], ok: "Aktifkan" });
+        if (!c) return;
+        await api("/2fa/enable", { method: "POST", body: JSON.stringify({ code: c.code }) }); toast("Verifikasi 2 langkah aktif"); return security();
+      }
+      if (r.action === "tfa" && d.tfa) {
+        const c = await dialog({ title: "Matikan 2 langkah", fields: [{ name: "password", label: "Password", type: "password", auto: "current-password", required: true }, { name: "code", label: "Kode 6 angka", inputmode: "numeric", auto: "one-time-code", required: true, max: 6 }], ok: "Matikan" });
+        if (!c) return;
+        await api("/2fa/disable", { method: "POST", body: JSON.stringify({ password: c.password, code: c.code }) }); toast("Verifikasi 2 langkah mati"); return security();
+      }
+    } catch (e) { toast(e.message); }
+  }
+  $("#secbtn").onclick = security;
   $("#legalbtn").onclick = () => window.open("terms.html", "_blank", "noopener");
   /* ----- tema tampilan: 5 pilihan siap pakai + custom (tersimpan per perangkat) ----- */
   const THEMES = [
@@ -1418,6 +1533,28 @@ async function initDashboard() {
   setTimeout(openFromHash, 700);
   st.blocked = new Set();
   async function loadBlocks() { try { st.blocked = new Set((await api("/blocks")).blocks.map((b) => b.player_id)); } catch {} }
+  /* ----- pesan disematkan, chat disematkan ----- */
+  async function loadPin() {
+    document.querySelectorAll(".pinbar").forEach((x) => x.remove()); st.pin = null;
+    const cur = st.cur; if (!cur || cur === OFFICIAL) return;
+    try {
+      const { pin } = await api("/pins?chat=" + encodeURIComponent(cur)); if (cur !== st.cur || !pin) return;
+      st.pin = pin;
+      const bar = mk("div", null, "pinbar"), t = mk("button", null, "pint"), x = mk("button", null, "hb");
+      t.type = x.type = "button"; t.append(ic("pin"), mk("span", [whoName(pin.sender) + ": " + lastText(pin.body)].join("")));
+      t.onclick = () => jumpTo(pin.id); x.setAttribute("aria-label", "Lepas sematan"); x.append(ic("x")); x.onclick = () => pinMsg({ id: pin.id });
+      bar.append(t, x); $("#msgs").before(bar);
+    } catch {}
+  }
+  async function pinMsg(m) {
+    const unpin = st.pin && st.pin.id === m.id;
+    try { await api("/pins", { method: "POST", body: JSON.stringify({ chat: st.cur, message_id: unpin ? null : m.id }) }); await loadPin(); toast(unpin ? "Sematan dilepas" : "Pesan disematkan"); } catch (e) { toast(e.message); }
+  }
+  async function loadChatPins() { try { st.cpins = new Set((await api("/chatpins")).pins); } catch {} }
+  async function toggleChatPin(chat) {
+    const on = !st.cpins.has(chat);
+    try { await api("/chatpins", { method: "POST", body: JSON.stringify({ chat, value: on }) }); on ? st.cpins.add(chat) : st.cpins.delete(chat); toast(on ? "Chat disematkan" : "Sematan chat dilepas"); render(); } catch (e) { toast(e.message); }
+  }
   /* ----- bisukan, cari pesan, media & tautan, tautan undangan ----- */
   st.mutes = new Set();
   async function loadMutes() { try { st.mutes = new Set((await api("/mutes")).mutes); } catch {} }
@@ -1425,7 +1562,7 @@ async function initDashboard() {
     const on = !st.mutes.has(chat);
     try { await api("/mutes", { method: "POST", body: JSON.stringify({ chat, value: on }) }); on ? st.mutes.add(chat) : st.mutes.delete(chat); toast(on ? "Notifikasi dibisukan" : "Notifikasi diaktifkan"); } catch (e) { toast(e.message); }
   }
-  const toolActs = (chat) => [{ key: "mute", label: st.mutes.has(chat) ? "Aktifkan notifikasi" : "Bisukan notifikasi" }, { key: "search", label: "Cari pesan" }, { key: "media", label: "Media dan tautan" }];
+  const toolActs = (chat) => [{ key: "pinchat", label: st.cpins.has(chat) ? "Lepas sematan chat" : "Sematkan chat di atas" }, { key: "mute", label: st.mutes.has(chat) ? "Aktifkan notifikasi" : "Bisukan notifikasi" }, { key: "search", label: "Cari pesan" }, { key: "media", label: "Media dan tautan" }, ...(!$("#form").hidden ? [{ key: "poll", label: "Buat polling" }] : [])];
   function chatSearch() {
     document.querySelectorAll(".msearch").forEach((x) => x.remove());
     const bar = mk("div", null, "msearch"), inp = mk("input"), cnt = mk("small"), x = mk("button", null, "hb");
@@ -1469,7 +1606,7 @@ async function initDashboard() {
     document.addEventListener("keydown", onKey, true); x.onclick = close; x.focus();
   }
   async function toolAction(key, chat) {
-    if (key === "mute") await toggleMute(chat); else if (key === "search") chatSearch(); else if (key === "media") mediaList(); else return false;
+    if (key === "pinchat") await toggleChatPin(chat); else if (key === "mute") await toggleMute(chat); else if (key === "search") chatSearch(); else if (key === "media") mediaList(); else if (key === "poll") await createPoll(chat); else return false;
     return true;
   }
   async function inviteMenu(r, reset) {
@@ -1545,18 +1682,20 @@ async function initDashboard() {
     if (!(await dialog({ title: (grp ? "Keluar dari " : "Berhenti mengikuti ") + r.name + "?", desc: warn, ok: grp ? "Keluar" : "Berhenti" }))) return false;
     try { await api("/rooms/" + r.id + "/leave", { method: "POST" }); st.cur = null; show(st.tab); loadRooms(); toast(grp ? "Kamu keluar dari grup" : "Tidak lagi mengikuti"); return true; } catch (e) { toast(e.message); return false; }
   }
-  function qrOverlay(title, url) {
+  function qrOverlay(title, url, opt = {}) {
+    return new Promise((resolve) => {
     const q = window.NovaQR(url), px = 8, quiet = 4, size = (q.n + quiet * 2) * px, c = document.createElement("canvas");
     c.width = c.height = size; const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, size, size); g.fillStyle = "#000";
     for (let y = 0; y < q.n; y++) for (let x = 0; x < q.n; x++) if (q.dark(y, x)) g.fillRect((x + quiet) * px, (y + quiet) * px, px, px);
     const img = mk("img", null, "qrimg"); img.src = c.toDataURL("image/png"); img.alt = "Kode QR undangan";
-    const prev = document.activeElement, back = mk("div", null, "mv"), bar = mk("div", null, "mv-bar"), x = mk("button", null, "hb"), body = mk("div", null, "mv-body"), cp = mk("button", "Salin tautan", "btn");
+    const prev = document.activeElement, back = mk("div", null, "mv"), bar = mk("div", null, "mv-bar"), x = mk("button", null, "hb"), body = mk("div", null, "mv-body"), cp = mk("button", opt.copyLabel || "Salin tautan", "btn");
     x.type = cp.type = "button"; x.setAttribute("aria-label", "Tutup"); x.append(ic("x")); bar.append(x, mk("b", title));
-    cp.onclick = () => navigator.clipboard.writeText(url).then(() => toast("Tautan disalin"), () => toast("Tidak bisa menyalin"));
-    body.append(img, mk("small", "Pindai dengan kamera untuk bergabung", "hint"), cp); back.append(bar, body); document.body.append(back);
-    const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); };
+    cp.onclick = () => navigator.clipboard.writeText(opt.copy || url).then(() => toast(opt.copyDone || "Tautan disalin"), () => toast("Tidak bisa menyalin"));
+    body.append(img, mk("small", opt.hint || "Pindai dengan kamera untuk bergabung", "hint"), cp); back.append(bar, body); document.body.append(back);
+    const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); resolve(); };
     const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
     document.addEventListener("keydown", onKey, true); x.onclick = close; x.focus();
+    });
   }
   async function roomInfo(r) {
     const grp = r.kind === "group", jenis = grp ? "grup" : "saluran", chat = "R-" + r.id, own = r.owner === me.player_id, canEdit = own || (grp && r.admin);
@@ -1582,7 +1721,7 @@ async function initDashboard() {
         const members = (await api("/rooms/" + r.id + "/members")).members, list = mk("div", null, "mlist2");
         members.forEach((m) => {
           const row = mk("button", null, "mrow"); row.type = "button"; row.append(av(m.full_name, m.avatar));
-          const t = mk("span"); t.append(mk("b", m.full_name + (m.player_id === me.player_id ? " (kamu)" : ""))); row.append(t);
+          const t = mk("span"); t.append(mk("b", m.full_name + (m.player_id === me.player_id ? " (kamu)" : ""))); if (m.online || m.player_id === me.player_id) t.append(mk("small", "online", "onl")); row.append(t);
           if (m.room_owner) row.append(mk("i", "Pemilik", "own")); else if (m.room_admin) row.append(mk("i", "Admin", "own"));
           const can = grp && canEdit && !m.room_owner && m.player_id !== me.player_id && (own || !m.room_admin);
           if (can) row.onclick = async () => {
@@ -1597,6 +1736,7 @@ async function initDashboard() {
           }; else row.disabled = true;
           list.append(row);
         });
+        const n = members.filter((m) => m.online || m.player_id === me.player_id).length; if (grp) hero.querySelector("small").textContent = "Grup · " + r.count + " anggota · " + n + " online";
         pane.replaceChildren(list);
       } catch (e) { pane.replaceChildren(mk("small", e.message, "hint")); }
     };
@@ -1608,6 +1748,23 @@ async function initDashboard() {
         add("Ganti foto " + jenis, async () => { const img = await pick(160, 0.75, 55000); await editRoom(r, { avatar: img }, "Foto diperbarui"); close(); roomInfo(roomOf(chat) || r); });
         if (r.avatar) add("Hapus foto " + jenis, async () => { await editRoom(r, { avatar: "" }, "Foto dihapus"); close(); roomInfo(roomOf(chat) || r); });
         add("Tautan undangan", () => inviteMenu(r));
+        if (grp) {
+          const SL = { 0: "Mati", 10: "10 detik", 30: "30 detik", 60: "1 menit", 300: "5 menit" };
+          add("Mode lambat: " + (SL[r.slow || 0] || "Mati"), async () => {
+            const a = await dialog({ title: "Mode lambat", desc: "Anggota biasa hanya bisa kirim satu pesan per selang waktu. Admin dan pemilik tidak dibatasi.", ok: null, actions: Object.entries(SL).map(([k, l]) => ({ key: k, label: ((r.slow || 0) === Number(k) ? "✓ " : "") + l })) });
+            if (!a) return; try { await api("/rooms/" + r.id + "/settings", { method: "POST", body: JSON.stringify({ slow: Number(a.action) }) }); await loadRooms(); toast("Disimpan"); close(); roomInfo(roomOf(chat) || r); } catch (e) { toast(e.message); }
+          });
+          add("Pesan sambutan" + (r.welcome ? " (aktif)" : ""), async () => {
+            const f = await dialog({ title: "Pesan sambutan", desc: "Dikirim otomatis saat ada anggota baru. Kosongkan untuk mematikan.", fields: [{ name: "w", label: "Isi pesan", value: r.welcome || "", multiline: true, max: 300 }], ok: "Simpan" });
+            if (f) try { await api("/rooms/" + r.id + "/settings", { method: "POST", body: JSON.stringify({ welcome: f.w }) }); await loadRooms(); toast("Disimpan"); close(); roomInfo(roomOf(chat) || r); } catch (e) { toast(e.message); }
+          });
+        }
+        add("Log aktivitas admin", async () => {
+          try {
+            const { log } = await api("/rooms/" + r.id + "/log"), AC = { tambah: "menambah", keluarkan: "mengeluarkan", jadi_admin: "menjadikan admin", cabut_admin: "mencabut admin", ganti_nama: "mengganti nama jadi", mode_lambat: "mode lambat (detik)", sambutan: "mengubah pesan sambutan" };
+            await dialog({ title: "Log aktivitas admin", desc: log.length ? log.map((x) => short(x.t) + " · " + x.actor + " " + (AC[x.action] || x.action) + (x.detail ? " " + x.detail : "")).join("\n") : "Belum ada catatan.", ok: null });
+          } catch (e) { toast(e.message); }
+        });
       }
       add(st.mutes.has(chat) ? "Aktifkan notifikasi" : "Bisukan notifikasi", async () => { await toggleMute(chat); tabs.set(); mb.lastChild.textContent = st.mutes.has(chat) ? "Aktifkan" : "Bisukan"; });
       if (grp || !own) add(grp ? "Keluar dari grup" : "Berhenti mengikuti", async () => { if (await leaveRoom(r)) close(); }, true);
