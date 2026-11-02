@@ -1256,7 +1256,11 @@ def adm_delete_user(db, u, pid):
 @app.get("/api/admin/rooms")
 @staff_only
 def adm_rooms(db, u):
-    rooms = db.query(Room).order_by(Room.id.desc()).limit(100).all()
+    q = (request.args.get("q") or "").strip().replace("%", "").replace("_", "")[:40]
+    qs = db.query(Room)
+    if q:
+        qs = qs.filter(Room.name.ilike("%" + q + "%"))
+    rooms = qs.order_by(Room.id.desc()).limit(100).all()
     cnt = {rid: n for rid, n in db.query(RoomMember.room_id, func.count(RoomMember.id)).group_by(RoomMember.room_id)}
     names = {x.player_id: x.full_name for x in db.query(User).filter(User.player_id.in_([r.owner for r in rooms]))}
     rb = {x.room_id: x.color for x in db.query(RoomBadge)}

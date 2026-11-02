@@ -1838,7 +1838,7 @@ async function initDashboard() {
       document.querySelectorAll("#admin [data-own]").forEach((e) => (e.hidden = !own));
       $("#aintro").textContent = own ? "Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server dan dicatat." : "Kamu masuk sebagai moderator. Kamu bisa menangani laporan dan memblokir pengguna. Tindakanmu dicatat.";
       const [s, u, rp, r, sc, lg] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/reports"),
-        api("/admin/rooms"), own ? api("/admin/security") : { items: [] }, own ? api("/admin/audit") : { log: [] }]);
+        api("/admin/rooms?q=" + encodeURIComponent($("#arsearch").value.trim())), own ? api("/admin/security") : { items: [] }, own ? api("/admin/audit") : { log: [] }]);
       adm.stats = s;
       $("#amstate").textContent = s.maint ? "Mode perawatan AKTIF: " + s.maint : "Mode perawatan mati. Pengguna biasa bisa memakai aplikasi.";
       api("/admin/activity").then((a) => {
@@ -1857,7 +1857,7 @@ async function initDashboard() {
       $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
       $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
         () => userActions(x), { vb: x.badge, tag: x.owner ? "OWNER" : x.mod ? "MOD" : x.cc ? "CC" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
-      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { vb: x.bdg, tag: RB[x.bdg] || "", avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
+      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { vb: x.bdg, tag: RB[x.bdg] || "", avEl: chAv(x.kind) })) : [emptyLi($("#arsearch").value.trim() ? "Tidak ada yang cocok." : "Belum ada grup atau saluran.")]));
     } catch (e) { toast(e.message); }
   }
   async function loadHealth() {
@@ -1951,7 +1951,7 @@ async function initDashboard() {
     if (!(await dialog({ title: "Kirim ke " + (adm.stats ? adm.stats.users : "semua") + " pengguna?", desc: "Pesan ini muncul di chat setiap pengguna sebagai pesan dari NOVA WAWA (akun resmi).", ok: "Kirim" }))) return;
     try { const r = await api("/admin/announce", { method: "POST", body: JSON.stringify({ text }) }); $("#acast").value = ""; toast("Terkirim ke " + r.sent + " pengguna"); } catch (e) { toast(e.message); }
   };
-  let adT; $("#ausearch").oninput = () => { clearTimeout(adT); adT = setTimeout(loadAdmin, 350); };
+  let adT; $("#ausearch").oninput = $("#arsearch").oninput = () => { clearTimeout(adT); adT = setTimeout(loadAdmin, 350); };
   $("#admbtn").onclick = () => show("admin");
 
   let last = (await api("/poll")).last, t1 = Date.now(), t2 = Date.now();
