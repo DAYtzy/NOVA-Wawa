@@ -347,3 +347,11 @@ class TotpKey(Base):  # autentikasi dua langkah (TOTP)
     player_id = Column(String(12), primary_key=True)
     secret = Column(String(40), nullable=False)
     enabled = Column(Boolean, default=False)
+
+
+class UserSanction(Base):  # peringatan dan bisu dari staf
+    __tablename__ = "user_sanctions"
+    player_id = Column(String(12), primary_key=True)
+    warns = Column(Integer, default=0)
+    mute_until = Column(DateTime, nullable=True)
+    reason = Column(String(200), default="")

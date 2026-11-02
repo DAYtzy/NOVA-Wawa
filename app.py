@@ -10,7 +10,7 @@ from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
 import mailer, push
 from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, RoomAdmin, ChatMute, RoomInvite, MsgReaction, MsgEdit, MsgPin, ChatPin, RoomSetting, RoomLog, Poll, PollVote, LoginSession, LogoutAll, TotpKey, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, RoomAdmin, ChatMute, RoomInvite, MsgReaction, MsgEdit, MsgPin, ChatPin, RoomSetting, RoomLog, Poll, PollVote, LoginSession, LogoutAll, TotpKey, UserSanction, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -81,7 +81,7 @@ def migrate_ids():
 migrate_ids()
 
 
-_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set(), "mods": set(), "ccs": set(), "bdg": {}, "lall": {}, "revoked": set()}
+_cache = {"t": 0.0, "banned": set(), "vfy": {}, "first": None, "announce": "", "pwchg": set(), "mods": set(), "ccs": set(), "bdg": {}, "lall": {}, "revoked": set(), "maint": "", "mutes": {}}
 
 
 def flags(db):
@@ -98,6 +98,8 @@ def flags(db):
                           ccs={r.player_id for r in staff if r.role == "cc"},
                           bdg={r.player_id: {"red": r.red, "gray": r.gray, "yellow": r.yellow} for r in db.query(BadgeFlag)},
                           lall={r.player_id: r.at for r in db.query(LogoutAll)},
+                          maint=((db.get(AppSetting, "maint") or AppSetting(value="")).value or ""),
+                          mutes={r.player_id: r.mute_until for r in db.query(UserSanction).filter(UserSanction.mute_until.isnot(None), UserSanction.mute_until > datetime.utcnow())},
                           revoked={r[0] for r in db.query(LoginSession.sid).filter(LoginSession.revoked.is_(True), LoginSession.created_at > datetime.utcnow() - timedelta(days=8))})
             if _cache["first"] is None:
                 _cache["first"] = db.query(func.min(User.id)).filter(User.player_id != OFFICIAL).scalar()
@@ -251,8 +253,19 @@ def authed(f):
                 return jsonify(error="Unauthorized"), 401
             if u.player_id in flags(db)["banned"]:
                 return jsonify(error="Akunmu diblokir oleh admin.", banned=True), 403
+            if _cache["maint"] and not is_staff(u):
+                return jsonify(error=_cache["maint"], maint=True), 503
             return f(db, u, *a, **k)
     return w
+
+
+def mute_block(u):
+    """Pengguna yang sedang dibisukan staf tidak boleh mengirim apa pun."""
+    t = _cache["mutes"].get(u.player_id)
+    if t and t > datetime.utcnow():
+        m = int((t - datetime.utcnow()).total_seconds() // 60) + 1
+        return jsonify(error="Kamu dibisukan oleh admin, sekitar %d menit lagi." % m, muted=True), 403
+    return None
 
 
 def owner_only(f):
@@ -699,6 +712,9 @@ def room_limit(db, u, rid):
 @app.post("/api/send")
 @authed
 def send(db, u):
+    mb = mute_block(u)
+    if mb:
+        return mb
     d = request.get_json(silent=True) or {}
     kind = "sig" if d.get("kind") == "sig" else "text"
     if not rl(db, "send:" + u.player_id, 400 if kind == "sig" else 60, 60):
@@ -944,6 +960,9 @@ def media_file(mid):
 @app.post("/api/voice")
 @authed
 def voice_new(db, u):
+    mb = mute_block(u)
+    if mb:
+        return mb
     """Unggah pesan suara (maks 90 dtk, disimpan langsung di database). Pesannya sendiri dikirim lewat /api/send dengan isi "[vn:<id>]"."""
     if not rl(db, "vn:" + u.player_id, 20, 600):
         return jsonify(error="Terlalu banyak pesan suara. Tunggu sebentar."), 429
@@ -1084,7 +1103,7 @@ def adm_stats(db, u):
         msgs24=db.query(func.count(Message.id)).filter(Message.kind == "text", Message.created_at > day).scalar() or 0,
         groups=db.query(func.count(Room.id)).filter(Room.kind == "group").scalar() or 0,
         channels=db.query(func.count(Room.id)).filter(Room.kind == "channel").scalar() or 0,
-        banned=len(_cache["banned"]))
+        banned=len(_cache["banned"]), maint=_cache["maint"])
 
 
 @app.get("/api/admin/users")
@@ -1096,12 +1115,14 @@ def adm_users(db, u):
         qs = qs.filter(or_(User.full_name.ilike("%" + q + "%"), User.player_id.like(q + "%")))
     rows = qs.order_by(User.id.desc()).limit(60).all()
     ext = {e.player_id: e for e in db.query(ProfileExt).filter(ProfileExt.player_id.in_([x.player_id for x in rows]))}
+    san = {e.player_id: e for e in db.query(UserSanction).filter(UserSanction.player_id.in_([x.player_id for x in rows]))}
     now, out = datetime.utcnow(), []
     for x in rows:
         ls = ext[x.player_id].last_seen if x.player_id in ext else None
         out.append({"player_id": x.player_id, "full_name": x.full_name, "created_at": iso(x.created_at), "last_seen": iso(ls),
                     "online": bool(ls and (now - ls).total_seconds() < 90), "verified": is_verified(x),
-                    "owner": is_owner(x), "mod": is_mod(x), "cc": is_cc(x), "red": is_red(x), "gray": is_gray(x), "yellow": is_yellow(x), "badge": badge_color(x), "banned": x.player_id in _cache["banned"]})
+                    "owner": is_owner(x), "mod": is_mod(x), "cc": is_cc(x), "red": is_red(x), "gray": is_gray(x), "yellow": is_yellow(x), "badge": badge_color(x), "banned": x.player_id in _cache["banned"],
+                    "muted": bool(san.get(x.player_id) and san[x.player_id].mute_until and san[x.player_id].mute_until > now), "warns": (san[x.player_id].warns or 0) if x.player_id in san else 0})
     return jsonify(users=out)
 
 
@@ -1265,6 +1286,97 @@ def adm_security(db, u):
         {"name": "Penyimpanan video (Cloudinary)", "ok": bool(cld), "note": "terhubung" if cld else "belum diisi"},
         {"name": "Server TURN untuk panggilan", "ok": turn, "note": "terhubung" if turn else "belum diisi"},
         {"name": "Owner ditetapkan manual (OWNER_IDS)", "ok": bool(OWNER_IDS), "note": "ya" if OWNER_IDS else "belum, memakai akun pertama"}])
+
+
+@app.post("/api/admin/maint")
+@owner_only
+def adm_maint(db, u):
+    d = request.get_json(silent=True) or {}
+    text = clean(d.get("text"), 200) or "NOVA WAWA sedang dalam perawatan. Coba lagi sebentar lagi." if d.get("on") else ""
+    s_ = db.get(AppSetting, "maint") or AppSetting(key="maint")
+    s_.value = text
+    db.add(s_)
+    db.commit()
+    _cache["maint"] = text
+    _cache["t"] = 0.0
+    audit(db, u, "maint_on" if text else "maint_off", "", text)
+    return jsonify(maint=text)
+
+
+_BOOT = time.time()
+
+
+@app.get("/api/admin/health")
+@owner_only
+def adm_health(db, u):
+    from sqlalchemy import text as sqltext
+    t0 = time.time()
+    db.execute(sqltext("SELECT 1"))
+    ping = int((time.time() - t0) * 1000)
+    out = {"ping": ping, "up": int(time.time() - _BOOT), "msgs": db.query(func.count(Message.id)).scalar() or 0,
+           "media": db.query(func.count(Media.id)).scalar() or 0, "users": db.query(func.count(User.id)).scalar() or 0}
+    try:
+        out["dbmb"] = round((db.execute(sqltext("SELECT pg_database_size(current_database())")).scalar() or 0) / 1048576, 1)
+        out["vnmb"] = round((db.execute(sqltext("SELECT COALESCE(SUM(LENGTH(data)),0) FROM media WHERE kind='audio' AND gone=false")).scalar() or 0) / 1048576, 1)
+    except Exception:
+        db.rollback()
+    return jsonify(**out)
+
+
+@app.get("/api/admin/activity")
+@staff_only
+def adm_activity(db, u):
+    from sqlalchemy import text as sqltext
+    try:
+        h = db.execute(sqltext("SELECT date_trunc('hour', created_at) AS h, COUNT(*) FROM messages WHERE kind='text' AND created_at > now() - interval '24 hours' GROUP BY 1 ORDER BY 1")).all()
+        dd = db.execute(sqltext("SELECT date_trunc('day', created_at) AS d, COUNT(*) FROM users WHERE created_at > now() - interval '7 days' GROUP BY 1 ORDER BY 1")).all()
+        return jsonify(hours=[{"t": iso(r[0]), "n": int(r[1])} for r in h], days=[{"t": iso(r[0]), "n": int(r[1])} for r in dd])
+    except Exception as e:
+        db.rollback()
+        print("activity gagal:", e)
+        return jsonify(hours=[], days=[])
+
+
+@app.post("/api/admin/users/<pid>/warn")
+@staff_only
+def adm_warn(db, u, pid):
+    t, err = target_user(db, u, pid)
+    if err:
+        return err
+    text = clean((request.get_json(silent=True) or {}).get("text"), 300)
+    if not text:
+        return jsonify(error="Tulis alasan peringatan."), 400
+    s_ = db.get(UserSanction, pid) or UserSanction(player_id=pid, warns=0)
+    s_.warns = (s_.warns or 0) + 1
+    auto = s_.warns % 3 == 0
+    if auto:
+        s_.mute_until = datetime.utcnow() + timedelta(hours=24)
+        s_.reason = "3 peringatan"
+    db.add(s_)
+    note = "Peringatan dari admin (%d): %s" % (s_.warns, text) + ("\nKarena sudah 3 peringatan, kamu dibisukan 24 jam." if auto else "")
+    db.add(Message(sender=OFFICIAL, to_id=pid, kind="text", body=enc(note)))
+    db.commit()
+    _cache["t"] = 0.0
+    audit(db, u, "warn", pid, text)
+    return jsonify(ok=True, warns=s_.warns, muted=auto)
+
+
+@app.post("/api/admin/users/<pid>/mute")
+@staff_only
+def adm_mute(db, u, pid):
+    t, err = target_user(db, u, pid)
+    if err:
+        return err
+    d = request.get_json(silent=True) or {}
+    mins = max(0, min(n0(d.get("minutes")), 60 * 24 * 30))
+    s_ = db.get(UserSanction, pid) or UserSanction(player_id=pid, warns=0)
+    s_.mute_until = datetime.utcnow() + timedelta(minutes=mins) if mins else None
+    s_.reason = clean(d.get("reason"), 200)
+    db.add(s_)
+    db.commit()
+    _cache["t"] = 0.0
+    audit(db, u, "mute_on" if mins else "mute_off", pid, "%d menit" % mins if mins else "")
+    return jsonify(ok=True)
 
 
 @app.post("/api/admin/banner")
@@ -2292,6 +2404,9 @@ def poll_target(db, u, p):
 @app.post("/api/polls")
 @authed
 def poll_new(db, u):
+    mb = mute_block(u)
+    if mb:
+        return mb
     if not rl(db, "poll:" + u.player_id, 10, 600):
         return jsonify(error="Terlalu banyak polling. Tunggu sebentar."), 429
     d = request.get_json(silent=True) or {}

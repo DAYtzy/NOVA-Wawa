@@ -12,6 +12,11 @@ async function api(path, opts = {}) {
       localStorage.removeItem("nova_token"); try { sessionStorage.setItem("nova_notice", "Sesimu berakhir. Silakan masuk lagi."); } catch {}
       location.href = "login.html";
     }
+    if (res.status === 503 && data.maint && /dashboard/.test(location.pathname) && !document.querySelector(".mnt")) {  // mode perawatan: staf tetap bisa masuk
+      const o = document.createElement("div"); o.className = "mnt"; const h = document.createElement("h2"); h.textContent = "Sedang perawatan";
+      const p = document.createElement("p"); p.textContent = data.error; const b = document.createElement("button"); b.className = "btn"; b.textContent = "Coba lagi"; b.onclick = () => location.reload();
+      o.append(h, p, b); document.body.append(o);
+    }
     if (res.status === 403 && data.banned) {  // akun diblokir owner: keluar dan tampilkan alasannya di halaman masuk
       localStorage.removeItem("nova_token"); try { sessionStorage.setItem("nova_notice", data.error); } catch {}
       if (!/login/.test(location.pathname)) location.href = "login.html";
@@ -1819,7 +1824,7 @@ async function initDashboard() {
   const dshort = (t) => (t ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "-");
   const adm = { stats: null };
   const AUDIT = { block: "memblokir", unblock: "membuka blokir", verify_on: "memberi centang biru", verify_off: "mencabut centang biru", delete_user: "menghapus akun", delete_room: "menghapus grup/saluran",
-    banner: "mengubah banner", announce: "mengirim pengumuman", report_selesai: "menyelesaikan laporan", report_diabaikan: "mengabaikan laporan", mod_on: "menjadikan moderator", mod_off: "mencabut moderator", cc_on: "memberi gelar Co-Chief", cc_off: "mencabut gelar Co-Chief",
+    banner: "mengubah banner", announce: "mengirim pengumuman", maint_on: "menyalakan mode perawatan", maint_off: "mematikan mode perawatan", warn: "memberi peringatan", mute_on: "membisukan", mute_off: "membuka bisu", report_selesai: "menyelesaikan laporan", report_diabaikan: "mengabaikan laporan", mod_on: "menjadikan moderator", mod_off: "mencabut moderator", cc_on: "memberi gelar Co-Chief", cc_off: "mencabut gelar Co-Chief",
     badge_red_on: "memberi centang merah", badge_red_off: "mencabut centang merah", badge_gray_on: "memberi centang abu-abu", badge_gray_off: "mencabut centang abu-abu", badge_yellow_on: "memberi centang kuning", badge_yellow_off: "mencabut centang kuning" };
   const BADGES = [["red", "merah"], ["gray", "abu-abu"], ["yellow", "kuning"]];
   const emptyLi = (t) => { const li = mk("li", t, "hint"); return li; };
@@ -1832,6 +1837,16 @@ async function initDashboard() {
       const [s, u, rp, r, sc, lg] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/reports"),
         own ? api("/admin/rooms") : { rooms: [] }, own ? api("/admin/security") : { items: [] }, own ? api("/admin/audit") : { log: [] }]);
       adm.stats = s;
+      $("#amstate").textContent = s.maint ? "Mode perawatan AKTIF: " + s.maint : "Mode perawatan mati. Pengguna biasa bisa memakai aplikasi.";
+      api("/admin/activity").then((a) => {
+        const bars = (el, arr, n, step) => {
+          const map = new Map(arr.map((x) => [Math.floor(new Date(x.t).getTime() / step), x.n])), end = Math.floor(Date.now() / step), vals = [];
+          for (let i = n - 1; i >= 0; i--) vals.push(map.get(end - i) || 0);
+          const mx = Math.max(1, ...vals); el.replaceChildren(...vals.map((v) => { const b = mk("i"); b.style.height = Math.max(3, (v / mx) * 100) + "%"; b.title = String(v); return b; }));
+        };
+        bars($("#achart"), a.hours, 24, 3600000); bars($("#achart2"), a.days, 7, 86400000);
+      }).catch(() => {});
+      if (own) loadHealth();
       $("#aaudit").replaceChildren(...(lg.log.length ? lg.log.map((x) => row(null, x.actor_name + " · " + (AUDIT[x.action] || x.action), (x.detail ? x.detail + " · " : "") + (x.target ? x.target + " · " : "") + ago(x.t), () => {})) : [emptyLi("Belum ada catatan.")]));
       $("#areports").replaceChildren(...(rp.reports.length ? rp.reports.map((x) => row(null, x.target_name + " · " + (REASON[x.reason] || x.reason),
         x.reporter_name + " melapor · " + ago(x.t) + (x.count > 1 ? " · " + x.count + " laporan" : "") + (x.detail ? " · " + x.detail : ""), () => reportActions(x), { badge: x.blocked ? "BLOKIR" : "" })) : [emptyLi("Tidak ada laporan baru.")]));
@@ -1842,10 +1857,25 @@ async function initDashboard() {
       $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
     } catch (e) { toast(e.message); }
   }
+  async function loadHealth() {
+    try {
+      const h = await api("/admin/health"), up = h.up > 3600 ? Math.floor(h.up / 3600) + " jam" : Math.ceil(h.up / 60) + " menit";
+      const items = [["Database", h.ping < 400 ? "ok" : "bad", "respons " + h.ping + " ms"], ["Ukuran database", h.dbmb != null && h.dbmb < 400 ? "ok" : "bad", h.dbmb != null ? h.dbmb + " MB (batas gratis Neon 512 MB)" : "tidak terbaca"],
+        ["Pesan suara", "ok", (h.vnmb != null ? h.vnmb + " MB" : "?") + " tersimpan"], ["Isi database", "ok", h.users + " akun, " + h.msgs + " pesan, " + h.media + " media"], ["Server aktif", "ok", up + " sejak mulai"]];
+      $("#ahealth").replaceChildren(...items.map(([n, ok, note]) => { const li = mk("li", null, "sitem " + ok); li.append(mk("b", (ok === "ok" ? "✓ " : "✗ ") + n), mk("small", note)); return li; }));
+    } catch (e) { toast(e.message); }
+  }
+  $("#ahrefresh").onclick = loadHealth;
+  async function setMaint(on) {
+    if (on && !(await dialog({ title: "Aktifkan mode perawatan?", desc: "Semua pengguna biasa langsung tidak bisa memakai aplikasi sampai kamu mematikannya. Staf tetap bisa masuk.", ok: "Aktifkan" }))) return;
+    try { await api("/admin/maint", { method: "POST", body: JSON.stringify({ on, text: $("#amtext").value.trim() }) }); toast(on ? "Mode perawatan aktif" : "Mode perawatan mati"); loadAdmin(); } catch (e) { toast(e.message); }
+  }
+  $("#amon").onclick = () => setMaint(true); $("#amoff").onclick = () => setMaint(false);
   async function userActions(x) {
     const r = await dialog({ title: x.full_name, desc: "ID " + x.player_id + (x.banned ? " · sedang diblokir" : ""), ok: null, actions: [
       ...(me.is_owner ? [{ key: "verify", label: x.verified ? "Cabut centang biru" : "Beri centang biru" },
         ...BADGES.map(([c, l]) => ({ key: "badge_" + c, label: (x[c] ? "Cabut centang " : "Beri centang ") + l }))] : []),
+      ...(x.owner || (!me.is_owner && x.mod) ? [] : [{ key: "warn", label: "Beri peringatan" + (x.warns ? " (sudah " + x.warns + ")" : "") }, { key: "mute", label: x.muted ? "Buka bisu" : "Bisukan" }]),
       ...(x.owner || (!me.is_owner && x.mod) ? [] : [{ key: "block", label: x.banned ? "Buka blokir" : "Blokir akun" }]),
       ...(me.is_owner && !x.owner ? [{ key: "mod", label: x.mod ? "Cabut peran moderator" : "Jadikan moderator" }, { key: "cc", label: x.cc ? "Cabut gelar Co-Chief" : "Jadikan Co-Chief" }, { key: "delete", label: "Hapus akun", danger: true }] : [])] });
     if (!r) return;
@@ -1854,6 +1884,19 @@ async function initDashboard() {
       else if (r.action.startsWith("badge_")) {
         const c = r.action.slice(6);
         await api("/admin/users/" + x.player_id + "/badge", { method: "POST", body: JSON.stringify({ color: c, value: !x[c] }) });
+      }
+      else if (r.action === "warn") {
+        const w = await dialog({ title: "Peringatan untuk " + x.full_name, desc: "Dikirim ke chatnya sebagai pesan dari NOVA WAWA. Setiap 3 peringatan, dia otomatis dibisukan 24 jam.", fields: [{ name: "text", label: "Alasan", multiline: true, max: 300, required: true }], ok: "Kirim peringatan" });
+        if (!w) return;
+        await api("/admin/users/" + x.player_id + "/warn", { method: "POST", body: JSON.stringify({ text: w.text }) });
+      }
+      else if (r.action === "mute") {
+        let mins = 0;
+        if (!x.muted) {
+          const m = await dialog({ title: "Bisukan " + x.full_name, desc: "Dia tidak bisa mengirim pesan, suara, atau polling. Masih bisa membaca.", ok: null, actions: [{ key: "15", label: "15 menit" }, { key: "60", label: "1 jam" }, { key: "1440", label: "1 hari" }, { key: "10080", label: "7 hari" }] });
+          if (!m) return; mins = +m.action;
+        }
+        await api("/admin/users/" + x.player_id + "/mute", { method: "POST", body: JSON.stringify({ minutes: mins }) });
       }
       else if (r.action === "mod") {
         if (!x.mod && !(await dialog({ title: "Jadikan " + x.full_name + " moderator?", desc: "Moderator bisa menangani laporan dan memblokir pengguna. Dia tidak bisa menghapus akun, mengirim pengumuman, atau mengubah pengaturan. Semua tindakannya dicatat." + (x.cc ? " Ini akan mencabut gelar Co-Chief-nya." : ""), ok: "Jadikan moderator" }))) return;
