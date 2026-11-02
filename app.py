@@ -10,7 +10,7 @@ from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
 import mailer, push
 from security import apply_headers, pw_problem, enc, dec, crypto_status, safe_data_url
-from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, RoomAdmin, ChatMute, RoomInvite, MsgReaction, MsgEdit, MsgPin, ChatPin, RoomSetting, RoomLog, Poll, PollVote, LoginSession, LogoutAll, TotpKey, UserSanction, init_db
+from database import Session, User, Contact, Message, Profile, ProfileExt, Sticker, AppSetting, UserFlag, BadgeFlag, Media, Block, RateHit, PwChange, EmailOk, PrivPref, Report, PushSub, Story, Room, RoomMember, Call, StaffRole, AuditLog, RoomExt, MsgReply, RoomAdmin, ChatMute, RoomInvite, MsgReaction, MsgEdit, MsgPin, ChatPin, RoomSetting, RoomLog, Poll, PollVote, LoginSession, LogoutAll, TotpKey, UserSanction, RoomBadge, init_db
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -1254,12 +1254,35 @@ def adm_delete_user(db, u, pid):
 
 
 @app.get("/api/admin/rooms")
-@owner_only
+@staff_only
 def adm_rooms(db, u):
     rooms = db.query(Room).order_by(Room.id.desc()).limit(100).all()
     cnt = {rid: n for rid, n in db.query(RoomMember.room_id, func.count(RoomMember.id)).group_by(RoomMember.room_id)}
     names = {x.player_id: x.full_name for x in db.query(User).filter(User.player_id.in_([r.owner for r in rooms]))}
-    return jsonify(rooms=[{"id": r.id, "kind": r.kind, "name": r.name, "owner": names.get(r.owner, r.owner), "count": cnt.get(r.id, 0)} for r in rooms])
+    rb = {x.room_id: x.color for x in db.query(RoomBadge)}
+    return jsonify(rooms=[{"id": r.id, "kind": r.kind, "name": r.name, "owner": names.get(r.owner, r.owner), "count": cnt.get(r.id, 0), "bdg": rb.get(r.id, "")} for r in rooms])
+
+
+@app.post("/api/admin/rooms/<int:rid>/badge")
+@staff_only
+def adm_room_badge(db, u, rid):
+    r = db.get(Room, rid)
+    if not r:
+        return jsonify(error="Tidak ditemukan."), 404
+    color = (request.get_json(silent=True) or {}).get("color") or ""
+    if color not in ("", "blue", "yellow"):
+        return jsonify(error="Warna tidak valid."), 400
+    b = db.get(RoomBadge, rid)
+    if color:
+        if b:
+            b.color = color
+        else:
+            db.add(RoomBadge(room_id=rid, color=color))
+    elif b:
+        db.delete(b)
+    db.commit()
+    audit(db, u, "rbadge_" + (color or "off"), "R-%d" % rid, r.name)
+    return jsonify(ok=True)
 
 
 @app.delete("/api/admin/rooms/<int:rid>")
@@ -1938,7 +1961,8 @@ def rooms_get(db, u):
     av_ = {x.room_id: x.avatar or "" for x in db.query(RoomExt)}
     adm = {a.room_id for a in db.query(RoomAdmin).filter_by(player_id=u.player_id)}
     sets = {x.room_id: x for x in db.query(RoomSetting)}
-    return jsonify(rooms=[{"id": r.id, "kind": r.kind, "name": r.name, "about": r.about, "owner": r.owner,
+    rb = {x.room_id: x.color for x in db.query(RoomBadge)}
+    return jsonify(rooms=[{"id": r.id, "bdg": rb.get(r.id, ""), "kind": r.kind, "name": r.name, "about": r.about, "owner": r.owner,
                            "count": cnt.get(r.id, 0), "joined": r.id in mine, "avatar": av_.get(r.id, ""), "admin": r.id in adm,
                            "slow": (sets[r.id].slow or 0) if r.id in sets else 0, "welcome": (sets[r.id].welcome or "") if r.id in sets else ""}
                           for r in db.query(Room).order_by(Room.id.desc()) if r.kind == "channel" or r.id in mine])
@@ -2515,6 +2539,9 @@ def room_edit(db, u, rid):
             return jsonify(error="Nama wajib diisi."), 400
         if name != r.name:
             r.name = name
+            rb_ = db.get(RoomBadge, rid)
+            if rb_ and not is_staff(u):  # ganti nama oleh pemilik mencabut centang, supaya tidak dipakai menyamar
+                db.delete(rb_)
             room_log(db, rid, u.player_id, "ganti_nama", name)
             if r.kind == "group":
                 room_notice(db, rid, "%s mengganti nama grup menjadi \"%s\"." % (u.full_name, name))

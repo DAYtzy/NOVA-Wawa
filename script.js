@@ -243,7 +243,7 @@ async function initDashboard() {
       return b;
     }));
     const E = st.contacts.map((c) => ({ p: c.player_id, n: c.full_name, i: c.avatar, k: "dm", bdg: c.badge, tag: c.owner ? "OWNER" : c.mod ? "MOD" : c.cc ? "CC" : "" }));
-    st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind, i: r.avatar }));
+    st.rooms.filter((r) => r.kind === "group" || r.joined).forEach((r) => E.push({ p: "R-" + r.id, n: r.name, k: r.kind, i: r.avatar, bdg: r.bdg }));
     Object.keys(st.last).forEach((k) => { if (!isRoom(k) && !saved(k) && k !== me.player_id) E.push({ p: k, n: nameOf(k), i: imgOf(k), k: "dm", v: k === OFFICIAL, tag: k === OFFICIAL ? "RESMI" : "" }); });
     const F = E.filter((e) => (st.filter === "all" || e.k === st.filter) && (e.n + e.p).toLowerCase().includes(q))
       .sort((a, b) => (st.cpins.has(b.p) - st.cpins.has(a.p)) || (Date.parse(st.lastT[b.p]) || 0) - (Date.parse(st.lastT[a.p]) || 0));
@@ -269,7 +269,7 @@ async function initDashboard() {
     /* Saluran */
     const chs = st.rooms.filter((r) => r.kind === "channel");
     const chRow = (r) => row(null, r.name, r.count + " pengikut" + (r.about ? " · " + r.about : ""), () => (r.joined ? open("R-" + r.id) : joinCh(r.id)),
-      { avEl: chAv("channel", r.avatar, r.name), badge: r.owner === me.player_id ? "ADMIN" : st.unread["R-" + r.id] || "", icon: r.joined ? null : ic("plus", "pbtn") });
+      { vb: r.bdg, avEl: chAv("channel", r.avatar, r.name), badge: r.owner === me.player_id ? "ADMIN" : st.unread["R-" + r.id] || "", icon: r.joined ? null : ic("plus", "pbtn") });
     const mineCh = chs.filter((r) => r.joined), finds = chs.filter((r) => !r.joined);
     $("#mych").replaceChildren(...mineCh.map(chRow));
     $("#find-h").hidden = !finds.length;
@@ -513,6 +513,7 @@ async function initDashboard() {
     const r = roomOf(p);
     $("#rtitle").textContent = nameOf(p);
     const ct = contact(p); if (ct && ct.owner) $("#rtitle").append(mk("i", "OWNER", "own")); if (p === OFFICIAL) $("#rtitle").append(mk("i", "RESMI", "own"));
+    if (r && r.bdg) $("#rtitle").append(ic("seal", "seal " + r.bdg));
     $("#rav").replaceChildren(r ? chAv(r.kind, r.avatar, r.name) : av(nameOf(p), imgOf(p)));
     $("#rid").className = ""; $("#rid").textContent = r ? (r.kind === "group" ? "Grup" : "Saluran · " + r.count + " pengikut") : p;
     roomSub(); $("#tray").hidden = true;
@@ -1710,7 +1711,8 @@ async function initDashboard() {
     const close = () => { document.removeEventListener("keydown", onKey, true); back.remove(); if (prev && prev.focus) prev.focus(); };
     const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".rinfo ~ .mv")) { e.preventDefault(); close(); } };
     document.addEventListener("keydown", onKey, true); x.onclick = close;
-    const hero = mk("div", null, "rhero"); hero.append(chAv(r.kind, r.avatar, r.name), mk("h2", r.name), mk("small", jenis[0].toUpperCase() + jenis.slice(1) + " · " + r.count + (grp ? " anggota" : " pengikut")));
+    const hero = mk("div", null, "rhero"); const h2 = mk("h2", r.name); if (r.bdg) h2.append(ic("seal", "seal " + r.bdg));
+    hero.append(chAv(r.kind, r.avatar, r.name), h2, mk("small", jenis[0].toUpperCase() + jenis.slice(1) + " · " + r.count + (grp ? " anggota" : " pengikut")));
     if (r.about) hero.append(mk("p", r.about, "rabout"));
     const qa = mk("div", null, "rqa"), qbtn = (icon, label, fn) => { const b = mk("button", null, "qa"); b.type = "button"; b.append(ic(icon), mk("span", label)); b.onclick = fn; qa.append(b); return b; };
     qbtn("search", "Cari", () => { close(); chatSearch(); });
@@ -1824,7 +1826,7 @@ async function initDashboard() {
   const dshort = (t) => (t ? new Date(t).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "-");
   const adm = { stats: null };
   const AUDIT = { block: "memblokir", unblock: "membuka blokir", verify_on: "memberi centang biru", verify_off: "mencabut centang biru", delete_user: "menghapus akun", delete_room: "menghapus grup/saluran",
-    banner: "mengubah banner", announce: "mengirim pengumuman", maint_on: "menyalakan mode perawatan", maint_off: "mematikan mode perawatan", warn: "memberi peringatan", mute_on: "membisukan", mute_off: "membuka bisu", report_selesai: "menyelesaikan laporan", report_diabaikan: "mengabaikan laporan", mod_on: "menjadikan moderator", mod_off: "mencabut moderator", cc_on: "memberi gelar Co-Chief", cc_off: "mencabut gelar Co-Chief",
+    banner: "mengubah banner", announce: "mengirim pengumuman", rbadge_blue: "memberi centang biru ke grup/saluran", rbadge_yellow: "memberi centang emas ke grup/saluran", rbadge_off: "mencabut centang grup/saluran", maint_on: "menyalakan mode perawatan", maint_off: "mematikan mode perawatan", warn: "memberi peringatan", mute_on: "membisukan", mute_off: "membuka bisu", report_selesai: "menyelesaikan laporan", report_diabaikan: "mengabaikan laporan", mod_on: "menjadikan moderator", mod_off: "mencabut moderator", cc_on: "memberi gelar Co-Chief", cc_off: "mencabut gelar Co-Chief",
     badge_red_on: "memberi centang merah", badge_red_off: "mencabut centang merah", badge_gray_on: "memberi centang abu-abu", badge_gray_off: "mencabut centang abu-abu", badge_yellow_on: "memberi centang kuning", badge_yellow_off: "mencabut centang kuning" };
   const BADGES = [["red", "merah"], ["gray", "abu-abu"], ["yellow", "kuning"]];
   const emptyLi = (t) => { const li = mk("li", t, "hint"); return li; };
@@ -1835,7 +1837,7 @@ async function initDashboard() {
       document.querySelectorAll("#admin [data-own]").forEach((e) => (e.hidden = !own));
       $("#aintro").textContent = own ? "Kamu masuk sebagai owner. Semua tindakan di sini dicek ulang oleh server dan dicatat." : "Kamu masuk sebagai moderator. Kamu bisa menangani laporan dan memblokir pengguna. Tindakanmu dicatat.";
       const [s, u, rp, r, sc, lg] = await Promise.all([api("/admin/stats"), api("/admin/users?q=" + encodeURIComponent(q)), api("/admin/reports"),
-        own ? api("/admin/rooms") : { rooms: [] }, own ? api("/admin/security") : { items: [] }, own ? api("/admin/audit") : { log: [] }]);
+        api("/admin/rooms"), own ? api("/admin/security") : { items: [] }, own ? api("/admin/audit") : { log: [] }]);
       adm.stats = s;
       $("#amstate").textContent = s.maint ? "Mode perawatan AKTIF: " + s.maint : "Mode perawatan mati. Pengguna biasa bisa memakai aplikasi.";
       api("/admin/activity").then((a) => {
@@ -1854,7 +1856,7 @@ async function initDashboard() {
       $("#astats").replaceChildren(...[["users", "Pengguna"], ["online", "Online"], ["new24", "Baru 24 jam"], ["msgs24", "Pesan 24 jam"], ["groups", "Grup"], ["channels", "Saluran"]].map(([k, l]) => { const c = mk("div", null, "astat"); c.append(mk("b", String(s[k])), mk("small", l)); return c; }));
       $("#ausers").replaceChildren(...(u.users.length ? u.users.map((x) => row(null, x.full_name, x.player_id + " · daftar " + dshort(x.created_at) + " · " + (x.online ? "online" : ago(x.last_seen)),
         () => userActions(x), { vb: x.badge, tag: x.owner ? "OWNER" : x.mod ? "MOD" : x.cc ? "CC" : "", badge: x.banned ? "BLOKIR" : "", online: x.online })) : [emptyLi("Tidak ada pengguna yang cocok.")]));
-      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
+      $("#arooms").replaceChildren(...(r.rooms.length ? r.rooms.map((x) => row(null, x.name, (x.kind === "group" ? "Grup" : "Saluran") + " · " + x.count + " anggota · oleh " + x.owner, () => roomActions(x), { vb: x.bdg, avEl: chAv(x.kind) })) : [emptyLi("Belum ada grup atau saluran.")]));
     } catch (e) { toast(e.message); }
   }
   async function loadHealth() {
@@ -1928,8 +1930,10 @@ async function initDashboard() {
   }
   async function roomActions(x) {
     const jenis = x.kind === "group" ? "grup" : "saluran";
-    const r = await dialog({ title: x.name, desc: jenis + " · " + x.count + " anggota", ok: null, actions: [{ key: "delete", label: "Hapus " + jenis, danger: true }] });
+    const r = await dialog({ title: x.name, desc: jenis + " · " + x.count + " anggota", ok: null, actions: [{ key: "blue", label: x.bdg === "blue" ? "Centang biru (aktif)" : "Beri centang biru (resmi)" }, { key: "yellow", label: x.bdg === "yellow" ? "Centang emas (aktif)" : "Beri centang emas (pilihan)" },
+      ...(x.bdg ? [{ key: "off", label: "Cabut centang" }] : []), ...(me.is_owner ? [{ key: "delete", label: "Hapus " + jenis, danger: true }] : [])] });
     if (!r) return;
+    if (r.action !== "delete") { try { await api("/admin/rooms/" + x.id + "/badge", { method: "POST", body: JSON.stringify({ color: r.action === "off" ? "" : r.action }) }); toast("Berhasil"); loadAdmin(); loadRooms(); } catch (e) { toast(e.message); } return; }
     if (!(await dialog({ title: "Hapus " + x.name + "?", desc: "Semua pesan di dalamnya ikut terhapus permanen.", ok: "Hapus permanen" }))) return;
     try { await api("/admin/rooms/" + x.id, { method: "DELETE" }); toast("Dihapus"); loadAdmin(); loadRooms(); } catch (e) { toast(e.message); }
   }

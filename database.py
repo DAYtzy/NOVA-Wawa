@@ -355,3 +355,9 @@ class UserSanction(Base):  # peringatan dan bisu dari staf
     warns = Column(Integer, default=0)
     mute_until = Column(DateTime, nullable=True)
     reason = Column(String(200), default="")
+
+
+class RoomBadge(Base):  # centang grup/saluran: "blue" (resmi) atau "yellow" (pilihan), diberi owner/moderator
+    __tablename__ = "room_badges"
+    room_id = Column(Integer, primary_key=True)
+    color = Column(String(8), default="blue")
